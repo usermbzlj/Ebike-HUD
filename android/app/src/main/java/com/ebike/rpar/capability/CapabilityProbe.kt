@@ -48,13 +48,7 @@ class CapabilityProbe(private val context: Context) {
                 .put("sdk_int", Build.VERSION.SDK_INT))
             .put("camera", cam)
             .put("sensors", sensorRates)
-            .put("acceleration", JSONObject()
-                .put("candidates", JSONArray().put("CPU").put("GPU").put("NPU"))
-                .put("note", "LiteRT microbench not run in V0.1")
-                .put("results", JSONArray()
-                    .put(JSONObject().put("backend", "CPU").put("status", "unavailable_until_benchmarked"))
-                    .put(JSONObject().put("backend", "GPU").put("status", "unavailable_until_benchmarked"))
-                    .put(JSONObject().put("backend", "NPU").put("status", "unavailable_until_benchmarked"))))
+            .put("acceleration", LiteRTBench.run())
             .put("arcore", JSONObject()
                 .put("available", arcore)
                 .put("depth", "unavailable")
@@ -67,7 +61,7 @@ class CapabilityProbe(private val context: Context) {
             .put("availability_flags", JSONObject()
                 .put("ois", flag(cam))
                 .put("preview_stabilization", if (Build.VERSION.SDK_INT >= 33) "available" else "unavailable")
-                .put("npu", "unavailable_until_benchmarked"))
+                .put("npu", "unavailable_until_litert_package"))
             .put("concurrent_streams", concurrentCombo)
     }
 

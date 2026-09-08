@@ -55,6 +55,8 @@ class CameraController(
     var availability: CaptureAvailability? = null
         private set
     var stabMode: StabilizationMode = StabilizationMode.OFF
+    var lockFarFocus: Boolean = false
+    var exposureCapNs: Long? = null
     var onFrame: ((SynchronizedFrame) -> Unit)? = null
     var onPreviewSize: ((Size) -> Unit)? = null
     val running = AtomicBoolean(false)
@@ -209,6 +211,19 @@ class CameraController(
         b.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange)
         b.set(CaptureRequest.CONTROL_AE_LOCK, false)
         b.set(CaptureRequest.CONTROL_AWB_LOCK, false)
+        if (lockFarFocus) {
+            b.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+            b.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f)
+        } else {
+            b.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+        }
+        val cap = exposureCapNs
+        if (cap != null) {
+            b.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+            b.set(CaptureRequest.SENSOR_EXPOSURE_TIME, cap)
+            b.set(CaptureRequest.SENSOR_SENSITIVITY, 100)
+            diagnostics.event("CAM", "exposure_cap", "requested_ns=$cap")
+        }
         chars?.let { ch ->
             val (video, ois) = desiredStabMode(stabMode, ch)
             if (video != null) b.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, video)
@@ -244,6 +259,10 @@ class CameraController(
         val avail = availability?.toMap()?.toMutableMap() ?: mutableMapOf()
         val ts = result?.get(CaptureResult.SENSOR_TIMESTAMP)
         val exposure = result?.get(CaptureResult.SENSOR_EXPOSURE_TIME)
+        val requested = exposureCapNs
+        if (requested != null && exposure != null && exposure != requested) {
+            diagnostics.event("CAM", "exposure_mismatch", "requested=$requested actual=$exposure")
+        }
         val iso = result?.get(CaptureResult.SENSOR_SENSITIVITY)
         val focal = result?.get(CaptureResult.LENS_FOCAL_LENGTH)
         val focus = result?.get(CaptureResult.LENS_FOCUS_DISTANCE)

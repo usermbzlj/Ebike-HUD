@@ -53,15 +53,31 @@ class ModelManager(private val context: Context, private val cfg: RparConfig) {
             if (!compatible(compat, APP_VERSION)) {
                 throw IllegalStateException("incompatible app $APP_VERSION vs $compat")
             }
-            val expected = manifest.optString("sha256", "")
-            val modelFile = dir?.listFiles()?.firstOrNull { it.name.endsWith(".tflite") || it.name.endsWith(".bin") }
-            if (expected.isNotBlank() && modelFile != null) {
-                val actual = sha256(modelFile)
-                if (!actual.equals(expected, ignoreCase = true)) {
-                    throw IllegalStateException("sha256 mismatch")
+            val expectedObj = manifest.optJSONObject("sha256")
+            if (expectedObj != null && dir != null) {
+                val it = expectedObj.keys()
+                while (it.hasNext()) {
+                    val name = it.next()
+                    val f = File(dir, name)
+                    if (!f.exists()) continue
+                    val actual = sha256(f)
+                    val want = expectedObj.optString(name)
+                    if (want.isNotBlank() && !actual.equals(want, ignoreCase = true)) {
+                        throw IllegalStateException("sha256 mismatch $name")
+                    }
+                }
+            } else {
+                val expected = manifest.optString("sha256", "")
+                val modelFile = dir?.listFiles()?.firstOrNull { it.name.endsWith(".tflite") || it.name.endsWith(".bin") }
+                if (expected.isNotBlank() && modelFile != null) {
+                    val actual = sha256(modelFile)
+                    if (!actual.equals(expected, ignoreCase = true)) {
+                        throw IllegalStateException("sha256 mismatch")
+                    }
                 }
             }
             val engine = manifest.optString("engine", "heuristic")
+            val modelFile = dir?.listFiles()?.firstOrNull { it.name.endsWith(".tflite") || it.name.endsWith(".bin") }
             if (engine == "heuristic" || engine == "heuristic-cv") return HeuristicEngine(cfg)
             if (engine == "oracle") return NoOpEngine()
             if (modelFile != null) {
@@ -96,9 +112,11 @@ class ModelManager(private val context: Context, private val cfg: RparConfig) {
         try {
             val dest = File(context.filesDir, "models/${cfg.model.packageId}")
             dest.mkdirs()
-            val out = File(dest, "manifest.json")
-            if (!out.exists()) {
-                context.assets.open("models/${cfg.model.packageId}/manifest.json").use { input ->
+            val names = context.assets.list("models/${cfg.model.packageId}") ?: emptyArray()
+            for (name in names) {
+                val out = File(dest, name)
+                if (out.exists()) continue
+                context.assets.open("models/${cfg.model.packageId}/$name").use { input ->
                     out.outputStream().use { input.copyTo(it) }
                 }
             }

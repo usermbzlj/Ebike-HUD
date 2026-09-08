@@ -43,6 +43,24 @@ class SensorHub(
     var gyroHz: Double = 0.0; var accelHz: Double = 0.0; var rvHz: Double = 0.0
     private var gyroCount = 0; private var accelCount = 0; private var rvCount = 0
     private var rateWindowNs = 0L
+    private val gyroGapsMs = ArrayList<Double>(512)
+
+    fun intervalJson(): org.json.JSONObject {
+        val s = gyroGapsMs.sorted()
+        fun pct(p: Double): Double {
+            if (s.isEmpty()) return 0.0
+            val i = ((p / 100.0) * (s.size - 1)).toInt().coerceIn(0, s.lastIndex)
+            return s[i]
+        }
+        return org.json.JSONObject()
+            .put("gyro_hz", gyroHz)
+            .put("accel_hz", accelHz)
+            .put("rv_hz", rvHz)
+            .put("gyro_gap_p5_ms", pct(5.0))
+            .put("gyro_gap_p50_ms", pct(50.0))
+            .put("gyro_gap_p95_ms", pct(95.0))
+            .put("n", s.size)
+    }
 
     fun start() {
         val delay = SensorManager.SENSOR_DELAY_FASTEST
@@ -84,6 +102,10 @@ class SensorHub(
         when (event.sensor.type) {
             Sensor.TYPE_GYROSCOPE -> {
                 gyroCount++
+                if (lastGyroNs != 0L) {
+                    gyroGapsMs += (ts - lastGyroNs) / 1e6
+                    if (gyroGapsMs.size > 4000) gyroGapsMs.removeAt(0)
+                }
                 lastGyroNs = ts
                 push(gyro, ImuSample(ts, SensorType.GYRO, v[0].toDouble(), v[1].toDouble(), v[2].toDouble(), event.accuracy, gyroHz))
             }

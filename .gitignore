@@ -24,13 +24,15 @@ captures/
 .externalNativeBuild/
 node_modules/
 web/dist/
-_docx_extract/
+_spec_extract.txt
 _spec.txt
+
 _extract_docx.js
 *.log
 .android-sdk/
 sessions/
 artifacts/
+docs/samples/**/*.mp4
 .cache/
 *.pyc
 .kotlin/

@@ -260,6 +260,7 @@ class RparRuntime(private val app: android.app.Application) {
             .put("accel", JSONObject().put("actual_hz", sensors.accelHz).put("status", "probed"))
             .put("rotation_vector", JSONObject().put("actual_hz", sensors.rvHz).put("status", "probed"))
             .put("high_sampling_rate_permission", "declared")
+            .put("intervals", sensors.intervalJson())
         val report = probe.run(combo, sensorsJson, voice.ready)
         val f = probe.write(report)
         val text = f.readText()
@@ -267,19 +268,40 @@ class RparRuntime(private val app: android.app.Application) {
         return text
     }
 
-    fun exportSessionZip(): File? {
+    fun exportSessionZip(redacted: Boolean = false): File? {
         val sessions = File(app.filesDir, "sessions")
         val latest = sessions.listFiles()?.maxByOrNull { it.lastModified() } ?: return null
         val outDir = File(app.filesDir, "exports").also { it.mkdirs() }
-        val zip = File(outDir, "${latest.name}.zip")
+        val packed = if (redacted) {
+            val red = File(outDir, "${latest.name}_share")
+            com.ebike.rpar.privacy.ShareRedactor.export(latest, red)
+            red
+        } else {
+            latest
+        }
+        val zip = File(outDir, packed.name + ".zip")
         ZipOutputStream(zip.outputStream()).use { zos ->
-            latest.walkTopDown().filter { it.isFile }.forEach { f ->
-                zos.putNextEntry(ZipEntry(f.relativeTo(latest).invariantSeparatorsPath))
+            packed.walkTopDown().filter { it.isFile }.forEach { f ->
+                zos.putNextEntry(ZipEntry(f.relativeTo(packed).invariantSeparatorsPath))
                 f.inputStream().use { it.copyTo(zos) }
                 zos.closeEntry()
             }
         }
         return zip
+    }
+
+    fun setAfLock(lock: Boolean) {
+        camera.lockFarFocus = lock
+        camera.recreateForStabilization(_ui.value.stab)
+    }
+
+    fun setExposureCap(on: Boolean) {
+        camera.exposureCapNs = if (on) 8_000_000L else null
+        camera.recreateForStabilization(_ui.value.stab)
+    }
+
+    fun setToneMode(on: Boolean) {
+        voice.toneMode = on
     }
 
     private fun ingest(raw: com.ebike.rpar.model.SynchronizedFrame, fromCamera: Boolean) {

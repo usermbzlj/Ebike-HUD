@@ -57,8 +57,30 @@ def compose(bgr: np.ndarray, view: PerceptionView, ui_mode: UiMode = UiMode.RIDI
         draw_poly(img, p)
     for p in prims:
         draw_label(img, p)
+    if ui_mode == UiMode.RESEARCH and view.quality is not None:
+        _heatmap(img, view)
     _hud(img, view, ui_mode)
     return img
+
+
+def _heatmap(img: np.ndarray, view: PerceptionView) -> None:
+    tiles = getattr(view.quality, "tiles", None) or []
+    overlay = img.copy()
+    for t in tiles:
+        vis = t.visibility.value if hasattr(t.visibility, "value") else str(t.visibility)
+        if vis == "clear":
+            continue
+        color = {
+            "blur": (40, 90, 210),
+            "glare": (40, 220, 255),
+            "underexposed": (180, 80, 40),
+            "overexposed": (240, 240, 240),
+            "occluded": (140, 140, 150),
+            "lens_drop": (90, 90, 200),
+        }.get(vis, (120, 120, 120))
+        cv2.rectangle(overlay, (int(t.x0), int(t.y0)), (int(t.x1), int(t.y1)), color, -1)
+    if tiles:
+        cv2.addWeighted(overlay, 0.16, img, 0.84, 0, img)
 
 
 def _hud(img: np.ndarray, view: PerceptionView, ui_mode: UiMode) -> None:

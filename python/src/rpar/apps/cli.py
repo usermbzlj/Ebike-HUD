@@ -6,12 +6,17 @@ import argparse
 import json
 from pathlib import Path
 
+from rpar.annotation import tracks_to_annotation_task
 from rpar.capability import write_capability_report
+from rpar.capture import record_simulated_session
 from rpar.config import load_config
-from rpar.golden import run_simulator_golden, run_video_file
+from rpar.golden import run_acceptance_suite, run_oracle_golden, run_simulator_golden, run_video_file
+from rpar.ml.eval import write_eval_bundle
 from rpar.ml.train import split_sessions, write_model_package, write_run_card
 from rpar.report import write_report
+from rpar.replay import SessionReplay, scan_time_offset_ms
 from rpar.session import verify_session
+from rpar.share import export_share_bundle
 from rpar.simulator import RoadSimulator, SimConfig, write_preview_video
 
 
@@ -52,6 +57,32 @@ def main(argv: list[str] | None = None) -> int:
     pkg = sub.add_parser("package-model", help="write a model package directory")
     pkg.add_argument("--id", default="heuristic-cv-0.1.0")
     pkg.add_argument("--out", default="models/heuristic-cv-0.1.0")
+
+    acc = sub.add_parser("accept", help="oracle + scene-sliced golden acceptance")
+    acc.add_argument("--out", default="artifacts/acceptance")
+
+    rec = sub.add_parser("record-session", help="write a full synthetic session bundle")
+    rec.add_argument("--out", default="artifacts/sessions")
+
+    off = sub.add_parser("offset-scan", help="SYNC-006 camera/IMU offset scan")
+    off.add_argument("session")
+
+    sh = sub.add_parser("share", help="export SHARE_REDACTED bundle")
+    sh.add_argument("session")
+    sh.add_argument("--out", default="artifacts/share")
+
+    an = sub.add_parser("annotate", help="tracks.jsonl → annotation task")
+    an.add_argument("session")
+    an.add_argument("--out", default="artifacts/annotation_task.json")
+
+    ev = sub.add_parser("eval", help="oracle + scene matrix + hard-negatives + calibration")
+    ev.add_argument("--out", default="artifacts/eval")
+
+    cl = sub.add_parser("clip", help="export a replay clip by frame index")
+    cl.add_argument("session")
+    cl.add_argument("--start", type=int, default=0)
+    cl.add_argument("--end", type=int, default=30)
+    cl.add_argument("--out", default="artifacts/clip.mp4")
 
     args = p.parse_args(argv)
     if args.cmd == "serve":
@@ -94,6 +125,37 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "package-model":
         write_model_package(Path(args.out), args.id)
         print(args.out)
+        return 0
+    if args.cmd == "accept":
+        oracle = run_oracle_golden(Path(args.out) / "oracle", load_config())
+        scenes = run_acceptance_suite(Path(args.out) / "scenes", load_config())
+        print(json.dumps({"oracle": oracle, "scenes": scenes}, indent=2))
+        return 0
+    if args.cmd == "record-session":
+        path = record_simulated_session(Path(args.out))
+        print(path)
+        return 0
+    if args.cmd == "offset-scan":
+        print(json.dumps(scan_time_offset_ms(Path(args.session)), indent=2))
+        return 0
+    if args.cmd == "share":
+        dest = Path(args.out)
+        print(json.dumps(export_share_bundle(Path(args.session), dest), indent=2))
+        return 0
+    if args.cmd == "annotate":
+        src = Path(args.session) / "perception" / "tracks.jsonl"
+        tracks_to_annotation_task(src, Path(args.out))
+        print(args.out)
+        return 0
+    if args.cmd == "eval":
+        print(json.dumps(write_eval_bundle(Path(args.out), load_config()), indent=2))
+        return 0
+    if args.cmd == "clip":
+        rep = SessionReplay(Path(args.session))
+        rep.open()
+        path = rep.export_clip(Path(args.out), args.start, args.end)
+        rep.close()
+        print(path)
         return 0
     return 1
 

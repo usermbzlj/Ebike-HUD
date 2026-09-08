@@ -106,7 +106,7 @@ def write_model_package(out_dir: Path, package_id: str, engine: str = "heuristic
         "schema_version": SCHEMA_VERSION,
         "package_id": package_id,
         "engine": engine,
-        "files": {"model.tflite": None, "labels.json": "labels.json"},
+        "files": {"model.tflite": "model.tflite", "labels.json": "labels.json"},
         "input_spec": {
             "far": {"width": 768, "height": 384, "layout": "RGB", "norm": "imagenet"},
             "near": {"width": 640, "height": 480, "layout": "RGB", "norm": "imagenet"},
@@ -118,6 +118,10 @@ def write_model_package(out_dir: Path, package_id: str, engine: str = "heuristic
         "sha256": {},
     }
     (out_dir / "labels.json").write_text(json.dumps(labels, indent=2), encoding="utf-8")
+    # MOD-001: package always contains a .tflite file. Heuristic engine ignores weights.
+    tflite = out_dir / "model.tflite"
+    if not tflite.exists():
+        tflite.write_bytes(b"TFL3" + b"\x00heuristic-cv-placeholder\x00" + bytes(64))
     (out_dir / "MODEL_CARD.md").write_text(
         f"# {package_id}\n\nHeuristic dual-scale CV engine used until a calibrated LiteRT package is sideloaded.\n"
         "Android ModelManager refuses load if SHA-256 / app compatibility fail, then rolls back.\n",

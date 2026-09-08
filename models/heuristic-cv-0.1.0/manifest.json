@@ -3,7 +3,7 @@
   "package_id": "heuristic-cv-0.1.0",
   "engine": "heuristic",
   "files": {
-    "model.tflite": null,
+    "model.tflite": "model.tflite",
     "labels.json": "labels.json"
   },
   "input_spec": {
@@ -46,6 +46,7 @@
   },
   "sha256": {
     "labels.json": "16f4c7240479ed5d079dfd7f993296b793a2472bd9b1b5654ce4f8916fde45bc",
+    "model.tflite": "5a2523e5308238df84bca19ddbca0384ad81e7e83d56388dbdbb4eabd35c974e",
     "MODEL_CARD.md": "ffe5211c21edac4f9bf5962cc36d8f938747b2cab56a626f788ae90f72c9c895"
   }
 }

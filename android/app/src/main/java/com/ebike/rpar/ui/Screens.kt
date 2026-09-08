@@ -27,6 +27,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -212,6 +215,19 @@ fun SettingsScreen(runtime: RparRuntime) {
         Spacer(Modifier.height(8.dp))
         Button(onClick = { runtime.reloadModel() }) { Text("扫描/加载模型包 (${ui.modelId})") }
         Button(onClick = { runtime.voice.playTestTone() }) { Text("测试提示音（扬声器/蓝牙）") }
+        var tone by remember { mutableStateOf(runtime.voice.toneMode) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("音调模式（左/正/右）", color = HudText); Spacer(Modifier.weight(1f))
+            Switch(checked = tone, onCheckedChange = { tone = it; runtime.setToneMode(it) })
+        }
+        Text("相机实验", color = HudMuted)
+        var afLock by remember { mutableStateOf(runtime.camera.lockFarFocus) }
+        var expCap by remember { mutableStateOf(runtime.camera.exposureCapNs != null) }
+        Row {
+            Chip("连续对焦", !afLock) { afLock = false; runtime.setAfLock(false) }
+            Chip("锁定远焦", afLock) { afLock = true; runtime.setAfLock(true) }
+            Chip("曝光上限 8ms", expCap) { expCap = !expCap; runtime.setExposureCap(expCap) }
+        }
         Button(onClick = { runtime.navigate(AppScreen.CALIBRATION) }) { Text("标定向导") }
         Button(onClick = { runtime.navigate(AppScreen.CAPABILITY) }) { Text("能力报告") }
         Button(onClick = { runtime.navigate(AppScreen.EXPORT) }) { Text("导出会话") }
@@ -256,7 +272,7 @@ fun CapabilityScreen(json: String, onProbe: () -> String, onShare: () -> Unit, o
 }
 
 @Composable
-fun ExportScreen(types: List<String>, hours: Double, onExport: () -> Unit, onBack: () -> Unit) {
+fun ExportScreen(types: List<String>, hours: Double, onExport: () -> Unit, onShareRedacted: () -> Unit, onBack: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(20.dp)) {
         Text("导出确认 (SEC-003)", color = HudAccent, fontSize = 22.sp)
         Text("本次导出会包含以下本地数据类型。隐私模式 LOCAL_ONLY，不会上传。", color = HudMuted)
@@ -265,7 +281,10 @@ fun ExportScreen(types: List<String>, hours: Double, onExport: () -> Unit, onBac
         Spacer(Modifier.height(12.dp))
         Text("估计剩余录像约 %.1f 小时（按 25 Mbps）".format(hours), color = HudMuted)
         Spacer(Modifier.height(16.dp))
-        Button(onClick = onExport) { Text("打包并分享 ZIP") }
+        Button(onClick = onExport) { Text("打包并分享 ZIP（原始）") }
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = onShareRedacted) { Text("分享版 ZIP（GPS 降精度）") }
+        Text("人脸/车牌像素模糊请用桌面 rpar share。", color = HudMuted, fontSize = 12.sp)
         TextButton(onClick = onBack) { Text("取消") }
     }
 }

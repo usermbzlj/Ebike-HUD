@@ -28,9 +28,26 @@ def build_report(session_dir: Path) -> dict[str, Any]:
         "n_alerts_fired": len(fired),
         "n_alert_decisions": len(alerts),
         "mean_blur": sum(blur) / len(blur) if blur else None,
+        "blur_share": (sum(1 for b in blur if (b or 0) > 0.5) / len(blur)) if blur else None,
+        "mean_infer_fps": _mean([d.get("infer_fps") for d in diag]),
+        "p95_latency_ms": _p95([d.get("latency_p95_ms") for d in diag]),
+        "mean_thermal_c": _mean([d.get("thermal_c") for d in diag]),
         "camera_interval": v.get("camera_interval"),
+        "visibility": dict(Counter(t.get("visibility_confidence") is not None for t in tracks)),
     }
     return report
+
+
+def _mean(vals: list) -> float | None:
+    xs = [float(v) for v in vals if isinstance(v, (int, float))]
+    return sum(xs) / len(xs) if xs else None
+
+
+def _p95(vals: list) -> float | None:
+    xs = sorted(float(v) for v in vals if isinstance(v, (int, float)))
+    if not xs:
+        return None
+    return xs[min(len(xs) - 1, int(round(0.95 * (len(xs) - 1))))]
 
 
 def write_report(session_dir: Path, out_json: Path, out_html: Path | None = None) -> dict[str, Any]:

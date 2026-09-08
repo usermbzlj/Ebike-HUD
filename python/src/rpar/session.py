@@ -63,6 +63,8 @@ class SessionWriter:
         self._video: cv2.VideoWriter | None = None
         self._seg_frames = 0
         self._seg_limit = 300 * 60  # overridden by fps * segment_seconds later
+        self._fps = 30
+        self._size = (1920, 1080)
         self._init_dirs()
 
     def _init_dirs(self) -> None:
@@ -108,6 +110,8 @@ class SessionWriter:
         self._video = cv2.VideoWriter(str(tmp), fourcc, fps, size)
         self._seg_frames = 0
         self._seg_limit = segment_frames
+        self._fps = fps
+        self._size = size
         self._part_path = tmp
         self._final_path = path
 
@@ -154,7 +158,14 @@ class SessionWriter:
                 f.write(json_dumps(diagnostics) + "\n")
         if self._seg_frames >= self._seg_limit:
             self.close_segment()
-            self.open_segment(60, (bgr.shape[1], bgr.shape[0]), self._seg_limit)
+            self.open_segment(self._fps, self._size, self._seg_limit)
+
+    def write_imu(self, sample: dict[str, Any]) -> None:
+        kind = str(sample.get("sensor_type", "GYRO"))
+        mapping = {"GYRO": "gyro.jsonl", "ACCEL": "accelerometer.jsonl", "ROTATION_VECTOR": "rotation_vector.jsonl"}
+        name = mapping.get(kind, "gyro.jsonl")
+        with (self.root / "imu" / name).open("a", encoding="utf-8") as f:
+            f.write(json_dumps(sample) + "\n")
 
     def close_segment(self) -> None:
         if self._video is None:
@@ -250,6 +261,7 @@ def export_bundle(src: Path, dest: Path) -> Path:
 
 def iter_jsonl(path: Path) -> Iterable[dict[str, Any]]:
     if not path.exists():
+        yield from ()
         return
     with path.open("r", encoding="utf-8") as f:
         for line in f:

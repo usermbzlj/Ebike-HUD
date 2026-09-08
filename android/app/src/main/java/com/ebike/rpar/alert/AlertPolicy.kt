@@ -59,22 +59,22 @@ class AlertPolicy(val cfg: AlertConfig, var enabled: Boolean = true) {
     ): AlertDecision {
         val reasons = ArrayList<String>()
         val snapshot = JSONObject()
-            .put("effective_confidence", obj.effectiveConfidence)
-            .put("visibility_confidence", obj.visibilityConfidence)
-            .put("temporal_confidence", obj.temporalConfidence)
-            .put("geometry_consistency", obj.geometryConsistency)
-            .put("path_relevance", obj.pathRelevance)
-            .put("risk_score", obj.riskScore)
-            .put("distance_m", obj.distanceM)
-            .put("distance_valid", obj.distanceValid)
-            .put("ttc_s", obj.ttcS)
-            .put("lifecycle_state", obj.lifecycleState.wire)
-            .put("severity", obj.severity.code)
-            .put("object_state", obj.objectState.wire)
-            .put("geometry_type", obj.geometryType.wire)
-            .put("semantic_type", obj.semanticType.wire)
-            .put("threshold", cfg.scoreThreshold)
-            .put("status", status.wire)
+        snapshot.put("effective_confidence", obj.effectiveConfidence)
+        snapshot.put("visibility_confidence", obj.visibilityConfidence)
+        snapshot.put("temporal_confidence", obj.temporalConfidence)
+        snapshot.put("geometry_consistency", obj.geometryConsistency)
+        snapshot.put("path_relevance", obj.pathRelevance)
+        snapshot.put("risk_score", obj.riskScore)
+        snapshot.put("distance_m", obj.distanceM)
+        snapshot.put("distance_valid", obj.distanceValid)
+        snapshot.put("ttc_s", obj.ttcS)
+        snapshot.put("lifecycle_state", obj.lifecycleState.wire)
+        snapshot.put("severity", obj.severity.code)
+        snapshot.put("object_state", obj.objectState.wire)
+        snapshot.put("geometry_type", obj.geometryType.wire)
+        snapshot.put("semantic_type", obj.semanticType.wire)
+        snapshot.put("threshold", cfg.scoreThreshold)
+        snapshot.put("status", status.wire)
 
         fun reject(reason: String, score: Double = 0.0): AlertDecision {
             reasons += reason
@@ -109,7 +109,10 @@ class AlertPolicy(val cfg: AlertConfig, var enabled: Boolean = true) {
         var suppression = 1.0
         if (obj.semanticType == SemanticType.UNKNOWN_ANOMALY) suppression *= 0.55
         val score = vs * sev * obj.pathRelevance * urg * suppression
-        snapshot.put("visual_score", vs).put("severity_score", sev).put("urgency", urg).put("alert_score", score)
+        snapshot.put("visual_score", vs)
+        snapshot.put("severity_score", sev)
+        snapshot.put("urgency", urg)
+        snapshot.put("alert_score", score)
         if (score < cfg.scoreThreshold) return reject("below_threshold", score)
 
         val prev = alertedTracks[obj.trackId]

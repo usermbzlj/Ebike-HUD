@@ -2,6 +2,7 @@ package com.ebike.rpar.diagnostics
 
 import android.os.SystemClock
 import android.util.Log
+import com.ebike.rpar.privacy.CrashSanitizer
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentLinkedQueue
 
@@ -15,7 +16,7 @@ data class DiagnosticEvent(
         .put("timestamp_ns", timestampNs)
         .put("domain", domain)
         .put("code", code)
-        .put("detail", detail.take(400))
+        .put("detail", CrashSanitizer.sanitizeText(detail.take(400)))
 }
 
 class DiagnosticBus {
@@ -23,10 +24,11 @@ class DiagnosticBus {
     @Volatile var lastStallNs: Long = 0
 
     fun event(domain: String, code: String, detail: String) {
-        val e = DiagnosticEvent(SystemClock.elapsedRealtimeNanos(), domain, code, detail)
+        val safe = CrashSanitizer.sanitizeText(detail.take(400))
+        val e = DiagnosticEvent(SystemClock.elapsedRealtimeNanos(), domain, code, safe)
         events.add(e)
         while (events.size > 400) events.poll()
-        Log.i("RPAR-$domain", "$code $detail")
+        Log.i("RPAR-$domain", "$code $safe")
     }
 
     fun drain(): List<DiagnosticEvent> {

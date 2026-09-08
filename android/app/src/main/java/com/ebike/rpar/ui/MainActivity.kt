@@ -78,7 +78,8 @@ class MainActivity : ComponentActivity() {
                         AppScreen.EXPORT -> ExportScreen(
                             types = ui.exportTypes,
                             hours = ui.remainingHours,
-                            onExport = { shareExport() },
+                            onExport = { shareExport(false) },
+                            onShareRedacted = { shareExport(true) },
                             onBack = { runtime.navigate(AppScreen.SETTINGS) },
                         )
                     }
@@ -111,8 +112,8 @@ class MainActivity : ComponentActivity() {
         startActivity(Intent.createChooser(intent, "Capability report"))
     }
 
-    private fun shareExport() {
-        val zip = runtime.exportSessionZip() ?: return
+    private fun shareExport(redacted: Boolean) {
+        val zip = runtime.exportSessionZip(redacted) ?: return
         val uri = FileProvider.getUriForFile(this, "$packageName.files", zip)
         startActivity(
             Intent.createChooser(

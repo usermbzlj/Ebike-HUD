@@ -15,6 +15,7 @@ class VoiceAlerts(private val context: Context) {
     var ready = false
         private set
     var useBluetooth = true
+    var toneMode = false
 
     fun start() {
         tts = TextToSpeech(context) { status ->
@@ -35,17 +36,34 @@ class VoiceAlerts(private val context: Context) {
 
     fun speak(phrase: String) {
         if (phrase.isBlank()) return
+        if (toneMode) {
+            val dir = when {
+                phrase.startsWith("左") -> 0
+                phrase.startsWith("右") -> 2
+                else -> 1
+            }
+            playDirectionTone(dir)
+            return
+        }
         route()
         tts?.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "rpar-alert")
     }
 
-    fun playTestTone() {
+    fun playTestTone() = playDirectionTone(1)
+
+    fun playDirectionTone(dir: Int) {
         route()
         val sr = 22050
-        val n = sr / 2
+        val n = sr / 5
+        val freq = when (dir) {
+            0 -> 660.0
+            2 -> 990.0
+            else -> 820.0
+        }
         val buf = ShortArray(n)
         for (i in buf.indices) {
-            buf[i] = (sin(2 * Math.PI * 880 * i / sr) * 12000).toInt().toShort()
+            val env = if (i < n / 8 || i > n * 7 / 8) 0.4 else 1.0
+            buf[i] = (sin(2 * Math.PI * freq * i / sr) * 11000 * env).toInt().toShort()
         }
         val track = AudioTrack(
             AudioAttributes.Builder()
@@ -64,7 +82,11 @@ class VoiceAlerts(private val context: Context) {
         track.write(buf, 0, buf.size)
         track.play()
         android.os.Handler(context.mainLooper).postDelayed({
-            try { track.stop(); track.release() } catch (_: Throwable) {}
+            try {
+                track.stop()
+                track.release()
+            } catch (_: Throwable) {
+            }
         }, 600)
     }
 

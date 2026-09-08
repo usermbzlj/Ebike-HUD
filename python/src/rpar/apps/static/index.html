@@ -69,6 +69,7 @@
       <button data-tab="cap">能力探测</button>
       <button data-tab="cal">安装标定</button>
       <button data-tab="mod">模型包</button>
+      <button data-tab="rep">回放/验收</button>
     </div>
   </header>
   <main>
@@ -114,6 +115,25 @@
     <section class="page" id="page-mod" style="grid-column: 1 / -1">
       <h2>MOD-001 模型包</h2>
       <pre id="modPre">loading…</pre>
+    </section>
+    <section class="page" id="page-rep" style="grid-column: 1 / -1">
+      <h2>REP-001 会话回放 · 黄金验收</h2>
+      <div class="ctrl">
+        <button id="btnAccept">跑验收套件</button>
+        <button id="btnRecord">录制合成会话</button>
+        <button id="btnRepPlay">回放逐帧</button>
+        <button id="btnOffset">扫描时间偏移</button>
+        <button id="btnSlow">0.25×</button>
+        <button id="btn1x">1×</button>
+        <button id="btn4x">4×</button>
+        <button id="btnEvent">跳到事件</button>
+        <button id="btnClip">导出片段</button>
+        <button id="btnShare">分享包脱敏</button>
+        <button id="btnEval">场景评估</button>
+      </div>
+      <p class="warn" id="repStatus">先录制会话，再回放视频 / IMU / 轨迹 / 提醒。</p>
+      <img id="repView" alt="session replay" style="max-width:100%;max-height:360px;background:#05070a"/>
+      <pre id="repPre">—</pre>
     </section>
   </main>
   <script>
@@ -172,7 +192,7 @@
         const tab = btn.dataset.tab;
         document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
         $("wrap-live").classList.toggle("active", tab === "live");
-        if (tab !== "live") $("page-" + (tab==="cap"?"cap":tab==="cal"?"cal":"mod")).classList.add("active");
+        if (tab !== "live") $("page-" + tab).classList.add("active");
         if (tab === "cap") $("capPre").textContent = JSON.stringify(await fetch("/api/capability").then(r=>r.json()), null, 2);
         if (tab === "cal") $("calPre").textContent = JSON.stringify(await fetch("/api/mount").then(r=>r.json()), null, 2);
         if (tab === "mod") {
@@ -181,6 +201,61 @@
         }
       };
     });
+    let repI = 0, repStep = 3, eventCursor = 0;
+    $("btnAccept").onclick = async () => {
+      $("repStatus").textContent = "验收运行中…";
+      const r = await fetch("/api/accept", {method:"POST"}).then(x => x.json());
+      $("repPre").textContent = JSON.stringify(r, null, 2);
+      $("repStatus").textContent = "oracle dir=" + (r.oracle?.direction_accuracy ?? "n/a") + " MAE=" + (r.oracle?.distance_mae_m ?? "n/a") + " gates=" + (r.oracle?.gates?.pass ?? "n/a");
+    };
+    $("btnRecord").onclick = async () => {
+      $("repStatus").textContent = "正在写会话 bundle…";
+      const r = await fetch("/api/session/record", {method:"POST"}).then(x => x.json());
+      $("repPre").textContent = JSON.stringify(r, null, 2);
+      $("repStatus").textContent = r.ok ? ("已录制 " + r.n_frames + " 帧，checksum " + (r.verify?.ok ? "通过" : "失败")) : "录制失败";
+      repI = 0;
+    };
+    $("btnRepPlay").onclick = async () => {
+      const st = await fetch("/api/replay/state?i=" + repI).then(x => x.json());
+      $("repView").src = "/api/replay/frame.jpg?t=" + Date.now();
+      $("repPre").textContent = JSON.stringify({index: st.index, gyro: st.gyro, imu: st.imu_series, tracks: (st.tracks||[]).length, alerts: st.alerts, events: (st.events||[]).length}, null, 2);
+      $("repStatus").textContent = "回放 " + st.index + "/" + st.n_frames;
+      repI = (st.index + repStep) % Math.max(1, st.n_frames);
+    };
+    $("btnSlow").onclick = () => { repStep = 1; $("repStatus").textContent = "步进 0.25×（逐帧）"; };
+    $("btn1x").onclick = () => { repStep = 3; $("repStatus").textContent = "步进 1×"; };
+    $("btn4x").onclick = () => { repStep = 12; $("repStatus").textContent = "步进 4×"; };
+    $("btnEvent").onclick = async () => {
+      const ev = await fetch("/api/replay/events").then(x => x.json());
+      const list = ev.events || [];
+      if (!list.length) { $("repStatus").textContent = "无提醒事件"; return; }
+      eventCursor = eventCursor % list.length;
+      repI = list[eventCursor].index || 0;
+      $("repStatus").textContent = "事件 " + (eventCursor+1) + "/" + list.length + " @" + repI;
+      eventCursor += 1;
+      $("btnRepPlay").click();
+    };
+    $("btnClip").onclick = async () => {
+      const r = await fetch("/api/replay/clip?start=" + Math.max(0, repI-15) + "&end=" + (repI+15), {method:"POST"}).then(x => x.json());
+      $("repPre").textContent = JSON.stringify(r, null, 2);
+      $("repStatus").textContent = r.ok ? "已导出片段" : "导出失败";
+    };
+    $("btnShare").onclick = async () => {
+      const r = await fetch("/api/session/share", {method:"POST"}).then(x => x.json());
+      $("repPre").textContent = JSON.stringify(r, null, 2);
+      $("repStatus").textContent = r.privacy_mode || "share";
+    };
+    $("btnEval").onclick = async () => {
+      $("repStatus").textContent = "场景评估中…";
+      const r = await fetch("/api/eval", {method:"POST"}).then(x => x.json());
+      $("repPre").textContent = JSON.stringify({oracle: r.oracle, hard_negatives: r.hard_negatives, slices: Object.keys(r.scenes?.slices||{})}, null, 2);
+      $("repStatus").textContent = "hard-neg alerts=" + (r.hard_negatives?.n_alerts_fired ?? "?");
+    };
+    $("btnOffset").onclick = async () => {
+      const r = await fetch("/api/replay/offset").then(x => x.json());
+      $("repPre").textContent = JSON.stringify(r, null, 2);
+      $("repStatus").textContent = r.ok ? ("建议偏移 " + r.best_offset_ms + " ms") : (r.reason || "无会话");
+    };
     tick();
   </script>
 </body>

@@ -8,15 +8,21 @@ from pathlib import Path
 from typing import Any
 
 import cv2
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from rpar.annotation import tracks_to_annotation_task
 from rpar.capability import desktop_capability_stub, write_capability_report
 from rpar.config import load_config
 from rpar.enums import UiMode
 from rpar.geometry import GeometryEngine
-from rpar.golden import run_simulator_golden
+from rpar.capture import record_simulated_session
+from rpar.golden import run_acceptance_suite, run_oracle_golden, run_simulator_golden
+from rpar.ml.eval import write_eval_bundle
+from rpar.replay import SessionReplay, scan_time_offset_ms
+from rpar.session import verify_session
+from rpar.share import export_share_bundle
 from rpar.ml.train import write_model_package
 from rpar.overlay import compose
 from rpar.perception import HeuristicPerceptionEngine
@@ -44,6 +50,9 @@ class DemoState:
         self.last_jpeg: bytes | None = None
         self.last_view: dict[str, Any] | None = None
         self.timeline: list[dict[str, Any]] = []
+        self.replay: SessionReplay | None = None
+        self.replay_index = 0
+        self.last_replay_jpeg: bytes | None = None
         self.reset()
 
     def reset(self) -> None:
@@ -192,6 +201,89 @@ def create_app() -> FastAPI:
     @app.get("/api/mount")
     def mount() -> dict[str, Any]:
         return default_mount().to_dict()
+
+    @app.post("/api/accept")
+    def accept() -> dict[str, Any]:
+        ART.mkdir(parents=True, exist_ok=True)
+        oracle = run_oracle_golden(ART / "acceptance" / "oracle", STATE.cfg)
+        scenes = run_acceptance_suite(ART / "acceptance" / "scenes", STATE.cfg)
+        return {"oracle": oracle, "scenes": scenes}
+
+    @app.post("/api/session/record")
+    def session_record() -> dict[str, Any]:
+        ART.mkdir(parents=True, exist_ok=True)
+        path = record_simulated_session(ART / "sessions")
+        with STATE.lock:
+            if STATE.replay:
+                STATE.replay.close()
+            STATE.replay = SessionReplay(path)
+            STATE.replay.open()
+            STATE.replay_index = 0
+        return {"ok": True, "path": str(path), "verify": verify_session(path), "n_frames": STATE.replay.n_frames()}
+
+    @app.get("/api/replay/state")
+    def replay_state(i: int = 0) -> JSONResponse:
+        with STATE.lock:
+            if STATE.replay is None:
+                raise HTTPException(status_code=404, detail="no session recorded")
+            payload = STATE.replay.at(i)
+            STATE.last_replay_jpeg = payload.pop("jpeg", b"")
+            STATE.replay_index = i
+        payload.pop("jpeg", None)
+        return JSONResponse(payload)
+
+    @app.get("/api/replay/frame.jpg")
+    def replay_jpg() -> Response:
+        with STATE.lock:
+            data = STATE.last_replay_jpeg or b""
+        return Response(data, media_type="image/jpeg")
+
+    @app.get("/api/replay/offset")
+    def replay_offset() -> dict[str, Any]:
+        with STATE.lock:
+            if STATE.replay is None:
+                return {"ok": False, "reason": "no_session"}
+            return scan_time_offset_ms(STATE.replay.root)
+
+    @app.get("/api/replay/events")
+    def replay_events() -> dict[str, Any]:
+        with STATE.lock:
+            if STATE.replay is None:
+                return {"events": []}
+            return {"events": STATE.replay.event_index}
+
+    @app.post("/api/replay/clip")
+    def replay_clip(start: int = 0, end: int = 30) -> dict[str, Any]:
+        ART.mkdir(parents=True, exist_ok=True)
+        with STATE.lock:
+            if STATE.replay is None:
+                raise HTTPException(status_code=404, detail="no session recorded")
+            path = STATE.replay.export_clip(ART / "clips" / "replay_clip.mp4", start, end)
+        return {"ok": True, "path": str(path)}
+
+    @app.post("/api/session/share")
+    def session_share() -> dict[str, Any]:
+        with STATE.lock:
+            if STATE.replay is None:
+                raise HTTPException(status_code=404, detail="no session recorded")
+            src = STATE.replay.root
+        dest = ART / "share" / src.name
+        return export_share_bundle(src, dest)
+
+    @app.post("/api/eval")
+    def eval_bundle() -> dict[str, Any]:
+        ART.mkdir(parents=True, exist_ok=True)
+        return write_eval_bundle(ART / "eval", STATE.cfg)
+
+    @app.post("/api/annotate")
+    def annotate() -> dict[str, Any]:
+        with STATE.lock:
+            if STATE.replay is None:
+                raise HTTPException(status_code=404, detail="no session recorded")
+            src = STATE.replay.root / "perception" / "tracks.jsonl"
+        out = ART / "annotation_task.json"
+        task = tracks_to_annotation_task(src, out)
+        return {"ok": True, "path": str(out), "n": len(task.get("items") or [])}
 
     return app
 

@@ -52,6 +52,7 @@ class RealtimePipeline(
     private val inferTimes = ArrayDeque<Long>()
     private var lastInferNs = 0L
     private var inferPeriodNs = (1e9 / maxOf(cfg.runtime.inferFps, 1.0)).toLong()
+    private val baseInferPeriodNs = inferPeriodNs
 
     fun reset() {
         tracker.reset()
@@ -70,6 +71,11 @@ class RealtimePipeline(
         val dt = if (lastNs == null) 1.0 / 60.0 else maxOf(1e-3, (t0 - lastNs!!) / 1e9)
         lastNs = t0
         frameCount++
+        if (thermalC != null && thermalC!! >= 42.0) {
+            inferPeriodNs = (1e9 / maxOf(cfg.runtime.thermalMinInferFps, 1.0)).toLong()
+        } else {
+            inferPeriodNs = baseInferPeriodNs
+        }
 
         val gray = when {
             frame.yuv != null -> GrayImage.fromYuv(frame.yuv, 480)
@@ -83,6 +89,9 @@ class RealtimePipeline(
         status = when (runMode) {
             RunMode.SAFE_MODE -> PerceptionStatus.SAFE_MODE
             else -> perceptionStatus(sel.q, badStreakS)
+        }
+        if (thermalC != null && thermalC!! >= 42.0 && status == PerceptionStatus.NORMAL) {
+            status = PerceptionStatus.THERMAL_THROTTLE
         }
         val allowNew = sel.fresh && sel.q.globalQuality.usable && status !in setOf(
             PerceptionStatus.SEVERE_BLUR, PerceptionStatus.PERCEPTION_LIMITED, PerceptionStatus.LENS_CONTAMINATION,

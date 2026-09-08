@@ -408,6 +408,8 @@ class OraclePerceptionEngine:
             if not (ev.start_s <= t <= ev.end_s):
                 continue
             poly = list(ev.polygon_fn(t))  # type: ignore[operator]
+            if len(poly) < 3:
+                continue
             if self.noise:
                 poly = [(p[0] + rng.normal(0, self.noise), p[1] + rng.normal(0, self.noise)) for p in poly]
             obs.append(
@@ -438,6 +440,29 @@ class OraclePerceptionEngine:
             input_sizes=[(768, 384), (640, 480)],
             dual_scale=True,
         )
+
+
+def oracle_engine_for_sim(sim: "RoadSimulator") -> OraclePerceptionEngine:
+    from rpar.simulator import RoadSimulator  # noqa: F401
+
+    events: list[ScriptedEvent] = []
+    duration = sim.sim.duration_s
+    for obj in sim.objects:
+        def poly_fn(t: float, o=obj) -> list[tuple[float, float]]:
+            return sim.object_polygon(o, t) or []
+
+        events.append(
+            ScriptedEvent(
+                start_s=0.0,
+                end_s=duration,
+                semantic=obj.semantic,
+                geometry=obj.geometry,
+                state=obj.state,
+                severity=obj.severity,
+                polygon_fn=poly_fn,
+            )
+        )
+    return OraclePerceptionEngine(events, noise=0.6)
 
 
 def load_engine(cfg: RparConfig, package_dir: Path | None = None) -> PerceptionEngine:

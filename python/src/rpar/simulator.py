@@ -84,18 +84,52 @@ class RoadSimulator:
             height=self.sim.height,
             availability={"exposure": True, "iso": True, "af": True},
         )
+        gyro, accel = self.motion_at(t)
         pose = PoseSample(ts, (0.0, 0.0, 0.0, 1.0), (0.0, 0.0, 9.81), 0.99)
         loc = LocationSample(ts, 31.23, 121.47, 8.0, self.sim.speed_mps, 12.0, 4.0, 0.4)
         frame = SynchronizedFrame(
             meta=meta,
             bgr=bgr,
             pose=pose,
-            angular_velocity=(0.0, 0.0, 0.0),
-            linear_accel=(0.0, 0.0, 9.81),
+            angular_velocity=gyro,
+            linear_accel=accel,
             location=loc,
             speed_mps=self.sim.speed_mps,
         )
         return frame, gt
+
+    def motion_at(self, t: float) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        rough = 0.05 * np.sin(t * 28.0)
+        impact = 1.8 if self._in_windows(t, self.sim.blur_windows) else 0.0
+        gyro = (float(0.03 * np.sin(t * 17.0)), float(0.04 * np.sin(t * 11.0) + impact * 0.4), float(rough + impact))
+        accel = (float(0.15 * np.sin(t * 9.0)), float(self.sim.speed_mps * 0.02), float(9.81 + impact * 4.0 + rough))
+        return gyro, accel
+
+    def object_polygon(self, obj: WorldObject, t: float) -> list[tuple[float, float]] | None:
+        rel_y = obj.y0_m - self.ego_y(t)
+        if rel_y < 1.5 or rel_y > 55:
+            return None
+        if obj.semantic == SemanticType.MANHOLE_COVER:
+            center = project_vehicle_point(np.array([obj.x_m, rel_y + obj.length_m / 2, 0.0]), self.mount, self.k)
+            edge = project_vehicle_point(
+                np.array([obj.x_m + obj.width_m / 2, rel_y + obj.length_m / 2, 0.0]), self.mount, self.k
+            )
+            if center is None or edge is None:
+                return None
+            r = float(np.linalg.norm(edge - center))
+            return [
+                (float(center[0] + r * np.cos(a)), float(center[1] + 0.7 * r * np.sin(a)))
+                for a in np.linspace(0, 2 * np.pi, 16, endpoint=False)
+            ]
+        pix = []
+        xs = [obj.x_m - obj.width_m / 2, obj.x_m + obj.width_m / 2]
+        ys = [rel_y, rel_y + obj.length_m]
+        for x, y in [(xs[0], ys[0]), (xs[1], ys[0]), (xs[1], ys[1]), (xs[0], ys[1])]:
+            uv = project_vehicle_point(np.array([x, y, 0.0]), self.mount, self.k)
+            if uv is None:
+                return None
+            pix.append((float(uv[0]), float(uv[1])))
+        return pix
 
     def _in_windows(self, t: float, windows: list[tuple[float, float]]) -> bool:
         return any(a <= t <= b for a, b in windows)

@@ -67,11 +67,14 @@ class RealtimePipeline:
         self.status = PerceptionStatus.NORMAL
         self.last_view: PerceptionView | None = None
         self.last_quality: FrameQualityMap | None = None
+        self.last_observations: list = []
         self.infer_count = 0
         self.frame_count = 0
         self.dropped_infer = 0
+        self.thermal_c: float | None = None
         self._last_infer_ns = 0
         self._infer_period_ns = int(1e9 / max(cfg.runtime.infer_fps, 1.0))
+        self._base_infer_period_ns = self._infer_period_ns
 
     def reset(self) -> None:
         self.tracker.reset()
@@ -79,6 +82,17 @@ class RealtimePipeline:
         self.last_ns = None
         self.bad_streak_s = 0.0
         self.status = PerceptionStatus.NORMAL
+        self.last_observations = []
+        self._infer_period_ns = self._base_infer_period_ns
+
+    def _apply_thermal(self) -> None:
+        """NFR-007: drop far-ROI / infer rate before touching preview."""
+        if self.thermal_c is not None and self.thermal_c >= 42.0:
+            self._infer_period_ns = int(1e9 / max(self.cfg.runtime.thermal_min_infer_fps, 1.0))
+            if self.status == PerceptionStatus.NORMAL:
+                self.status = PerceptionStatus.THERMAL_THROTTLE
+        else:
+            self._infer_period_ns = self._base_infer_period_ns
 
     def set_alerts_enabled(self, enabled: bool) -> None:
         self.alerts.set_enabled(enabled)
@@ -88,6 +102,7 @@ class RealtimePipeline:
         dt = 1.0 / 60.0 if self.last_ns is None else max(1e-3, (t0 - self.last_ns) / 1e9)
         self.last_ns = t0
         self.frame_count += 1
+        self._apply_thermal()
 
         qmap = evaluate_frame(frame.bgr, self.cfg.quality)
         self.scheduler.push(frame, qmap)
@@ -97,6 +112,8 @@ class RealtimePipeline:
         else:
             self.bad_streak_s += dt
         self.status = perception_status(sel_q, self.bad_streak_s)
+        if self.thermal_c is not None and self.thermal_c >= 42.0 and self.status == PerceptionStatus.NORMAL:
+            self.status = PerceptionStatus.THERMAL_THROTTLE
         self.last_quality = sel_q
 
         allow_new = fresh and sel_q.global_quality.usable and self.status not in {
@@ -112,6 +129,7 @@ class RealtimePipeline:
         if do_infer:
             result = self.engine.infer(sel_frame, sel_q)
             observations = result.observations
+            self.last_observations = observations
             backend = result.backend
             infer_ms = result.latency_ms
             dual = result.dual_scale
@@ -227,7 +245,7 @@ class RealtimePipeline:
             ar_fps=1.0 / dt,
             latency_p95_ms=p95,
             queue_depth=len(self.scheduler._buf),
-            thermal_c=None,
+            thermal_c=self.thermal_c,
             blur=sel_q.global_quality.motion_blur,
             glare=sel_q.global_quality.glare,
             rec_seconds=self.frame_count / 60.0,

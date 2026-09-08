@@ -43,15 +43,21 @@ Camera2 1080p60 + IMU/GNSS          会话导入 / QC
 - **骑行/研究**：同一套结构化感知结果，信息密度不同
 - **能力探测**：CAP-001 JSON 契约（真值必须在 PKC110 运行时探测）
 - **安装标定**：左侧车把 `left_handlebar_v1` 配置档
-- **模型包**：manifest / 标签映射 / 双尺度输入规格
+- **回放/验收**：录制合成会话、逐帧/变速回放、事件跳转、片段导出、时间偏移扫描、黄金验收、分享脱敏
 
 其它命令：
 
 ```text
 rpar golden --out artifacts/golden
 rpar simulate --out artifacts/sim_raw.mp4
+rpar accept --out artifacts/acceptance
+rpar record-session --out artifacts/sessions
 rpar verify <session_dir>
 rpar report <session_dir>
+rpar share <session_dir> --out artifacts/share
+rpar offset-scan <session_dir>
+rpar eval --out artifacts/eval
+rpar annotate <session_dir>
 rpar split session_a session_b session_c
 rpar package-model --id heuristic-cv-0.1.0
 ```
