@@ -57,6 +57,19 @@ def test_normal_manhole_does_not_alert():
     assert "normal_or_flat" in d.reasons
 
 
+def test_normal_crack_texture_does_not_alert():
+    pol = AlertPolicy(AlertConfig(score_threshold=0.01, min_effective=0.0, min_visibility=0.0, min_severity=0))
+    obj = _obj(
+        semantic_type=SemanticType.ROUGH_BROKEN,
+        object_state=ObjectState.NORMAL,
+        geometry_type=GeometryType.ROUGH,
+        severity=Severity.NONE,
+    )
+    d = pol.evaluate(obj, PerceptionStatus.NORMAL, 10**10, True)
+    assert d.fired is False
+    assert "normal_or_flat" in d.reasons
+
+
 def test_off_corridor_display_but_no_alert():
     pol = AlertPolicy(AlertConfig())
     obj = _obj(path_relevance=0.1)

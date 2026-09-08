@@ -130,7 +130,12 @@ enum class PrivacyMode(val wire: String) {
 
 object EnumCopy {
     val INFO_LAYER = setOf(SemanticType.PUDDLE, SemanticType.GRAVEL)
-    val LOW_RISK_WHEN_NORMAL = setOf(SemanticType.MANHOLE_COVER, SemanticType.REPAIR_PATCH, SemanticType.ROAD_JOINT)
+    val LOW_RISK_WHEN_NORMAL = setOf(
+        SemanticType.MANHOLE_COVER,
+        SemanticType.REPAIR_PATCH,
+        SemanticType.ROAD_JOINT,
+        SemanticType.ROUGH_BROKEN,
+    )
     val ALERT_FORBIDDEN = listOf(
         "向左避让", "向右避让", "向左转向", "向右转向", "刹车", "制动",
         "steer left", "steer right", "brake now",

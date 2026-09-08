@@ -137,6 +137,11 @@ def main(argv: list[str] | None = None) -> int:
     df.add_argument("--out", default="models/roadseg-field-0.1.0")
     df.add_argument("--frames-per-clip", type=int, default=12)
 
+    ml = sub.add_parser("map-label", help="map a public dataset class onto RPAR semantic/geometry/state")
+    ml.add_argument("source")
+    ml.add_argument("raw")
+    ml.add_argument("--severity", default="")
+
     args = p.parse_args(argv)
     if args.cmd == "serve":
         from rpar.apps.server import main as serve_main
@@ -245,6 +250,11 @@ def main(argv: list[str] | None = None) -> int:
 
         clips = [Path(c["path"]) for c in list_clips(repo_video_dir()) if c.get("ok")]
         print(json.dumps(distill_from_videos(clips, Path(args.out), frames_per_clip=args.frames_per_clip), indent=2))
+        return 0
+    if args.cmd == "map-label":
+        from rpar.ml.labelmap import map_record
+
+        print(json.dumps(map_record(args.source, args.raw, args.severity or None), indent=2, ensure_ascii=False))
         return 0
     if args.cmd == "export":
         src = Path(args.session)

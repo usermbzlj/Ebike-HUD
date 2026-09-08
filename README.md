@@ -63,6 +63,7 @@ rpar active-learn <session_dir>
 rpar damping-ab session_a session_b
 rpar train-seg --export-tflite --package models/roadseg-synth-0.1.0
 rpar field-video --out artifacts/field_video --max-frames 90
+rpar map-label rdd2022 D40
 rpar train-synth
 rpar split session_a session_b session_c
 rpar package-model --id heuristic-cv-0.1.0
@@ -117,4 +118,5 @@ tests/            坐标、同步、状态机、提醒门控、会话校验、�
 - [已知限制与风险](docs/KNOWN_LIMITATIONS.md)
 - [标注指南](docs/ANNOTATION.md)
 - [测试计划与验收](docs/TEST_PLAN.md)
+- [数据与模型立场](docs/DATASETS.md)
 - [发布说明](docs/RELEASE_NOTES.md)
