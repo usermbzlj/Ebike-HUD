@@ -475,7 +475,14 @@ class RparRuntime(private val app: android.app.Application) {
                             .put("charging", sensors.charging)
                             .put("using_test_pattern", _ui.value.usingTestPattern)
                             .put("privacy_mode", privacy.wire)
-                            .put("status", view.status.wire),
+                            .put("status", view.status.wire)
+                            .put("memory_mb", (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / (1024.0 * 1024.0))
+                            .put("dropped_infer", pipeline.droppedInfer)
+                            .put("backend", view.backend.wire)
+                            .put("queue_depth", view.queueDepth)
+                            .put("location_hz", sensors.locationHz)
+                            .put("timestamp_ns", frame.meta.sensorTimestampNs)
+                            .put("location_interpolated", frame.location?.interpolated == true),
                     )
                     w.writeOverlay(frame.meta.sensorTimestampNs, view.primitives)
                 }

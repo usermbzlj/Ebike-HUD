@@ -114,14 +114,16 @@ data class LocationSample(
     val bearingDeg: Double?,
     val horizontalAccuracyM: Double?,
     val speedAccuracyMps: Double?,
+    val interpolated: Boolean = false,
 ) {
     fun toJson(includePrecise: Boolean): JSONObject {
         val o = JSONObject()
-            .put("timestamp_ns", timestampNs)
-            .put("speed_mps", speedMps)
-            .put("bearing_deg", bearingDeg)
-            .put("horizontal_accuracy_m", horizontalAccuracyM)
-            .put("speed_accuracy_mps", speedAccuracyMps)
+        o.put("timestamp_ns", timestampNs)
+        o.put("speed_mps", speedMps)
+        o.put("bearing_deg", bearingDeg)
+        o.put("horizontal_accuracy_m", horizontalAccuracyM)
+        o.put("speed_accuracy_mps", speedAccuracyMps)
+        o.put("interpolated", interpolated)
         if (includePrecise) {
             o.put("latitude", latitude)
             o.put("longitude", longitude)
@@ -209,7 +211,18 @@ data class MaskRle(
     val height: Int,
     val counts: List<Int>,
     val encoding: String = "rle_cocoa",
-)
+) {
+    fun toJson(): JSONObject {
+        val c = JSONArray()
+        counts.forEach { c.put(it) }
+        val o = JSONObject()
+        o.put("width", width)
+        o.put("height", height)
+        o.put("counts", c)
+        o.put("encoding", encoding)
+        return o
+    }
+}
 
 data class RoadObservation(
     val timestampNs: Long,
@@ -239,6 +252,7 @@ data class RoadObservation(
         .put("quality_at_mask", qualityAtMask)
         .put("visibility", visibility.wire)
         .put("calibrated_confidence", calibratedConfidence)
+        .put("mask_rle", maskRle?.toJson() ?: JSONObject.NULL)
 }
 
 data class PerceptionResult(
@@ -314,6 +328,7 @@ data class TrackedRoadObject(
         .put("model_version", modelVersion)
         .put("visual_style", visualStyle)
         .put("label_rank", labelRank)
+        .put("mask_rle", maskRle?.toJson() ?: JSONObject.NULL)
 }
 
 data class AlertDecision(
@@ -472,4 +487,101 @@ fun nmsPolygons(items: List<Pair<List<Pair<Float, Float>>, Double>>, iouThr: Dou
         }
     }
     return keep
+}
+
+fun pointInPolygon(x: Float, y: Float, poly: List<Pair<Float, Float>>): Boolean {
+    var inside = false
+    var j = poly.lastIndex
+    for (i in poly.indices) {
+        val yi = poly[i].second
+        val yj = poly[j].second
+        val xi = poly[i].first
+        val xj = poly[j].first
+        val hit = ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / ((yj - yi) + 1e-6f) + xi)
+        if (hit) inside = !inside
+        j = i
+    }
+    return inside
+}
+
+fun rleEncode(mask: BooleanArray): List<Int> {
+    val counts = ArrayList<Int>()
+    var prev = false
+    var run = 0
+    for (v in mask) {
+        if (v == prev) run++
+        else {
+            counts += run
+            run = 1
+            prev = v
+        }
+    }
+    counts += run
+    return counts
+}
+
+fun rleFromPolygon(poly: List<Pair<Float, Float>>, maxSide: Int = 160): MaskRle? {
+    if (poly.size < 3) return null
+    val bb = bboxOf(poly)
+    var bw = maxOf(1, kotlin.math.ceil(bb[2] - bb[0]).toInt())
+    var bh = maxOf(1, kotlin.math.ceil(bb[3] - bb[1]).toInt())
+    var scale = 1f
+    val longSide = maxOf(bw, bh)
+    if (longSide > maxSide) {
+        scale = maxSide / longSide.toFloat()
+        bw = maxOf(1, kotlin.math.round(bw * scale).toInt())
+        bh = maxOf(1, kotlin.math.round(bh * scale).toInt())
+    }
+    val mask = BooleanArray(bw * bh)
+    val x0 = bb[0]
+    val y0 = bb[1]
+    for (y in 0 until bh) for (x in 0 until bw) {
+        val px = x0 + (x + 0.5f) / scale
+        val py = y0 + (y + 0.5f) / scale
+        mask[x * bh + y] = pointInPolygon(px, py, poly) // Fortran-order like COCO
+    }
+    return MaskRle(bw, bh, rleEncode(mask))
+}
+
+object LocationInterp {
+    fun lerp(a: LocationSample, b: LocationSample, tNs: Long): LocationSample {
+        val span = maxOf(1L, b.timestampNs - a.timestampNs)
+        val u = ((tNs - a.timestampNs).toDouble() / span).coerceIn(0.0, 1.0)
+        fun mix(x: Double?, y: Double?): Double? {
+            if (x == null) return y
+            if (y == null) return x
+            return x + (y - x) * u
+        }
+        var br: Double? = null
+        if (a.bearingDeg != null && b.bearingDeg != null) {
+            val d = ((b.bearingDeg - a.bearingDeg + 540.0) % 360.0) - 180.0
+            br = (a.bearingDeg + d * u) % 360.0
+        } else {
+            br = a.bearingDeg ?: b.bearingDeg
+        }
+        val gapS = span / 1e9
+        val acc = (mix(a.speedAccuracyMps, b.speedAccuracyMps) ?: 0.4) * (1.0 + maxOf(0.0, gapS * 2.0))
+        return LocationSample(
+            timestampNs = tNs,
+            latitude = mix(a.latitude, b.latitude),
+            longitude = mix(a.longitude, b.longitude),
+            altitude = mix(a.altitude, b.altitude),
+            speedMps = mix(a.speedMps, b.speedMps),
+            bearingDeg = br,
+            horizontalAccuracyM = mix(a.horizontalAccuracyM, b.horizontalAccuracyM),
+            speedAccuracyMps = acc,
+            interpolated = true,
+        )
+    }
+
+    fun at(samples: List<LocationSample>, tNs: Long): LocationSample? {
+        if (samples.isEmpty()) return null
+        val s = samples.sortedBy { it.timestampNs }
+        if (tNs <= s.first().timestampNs) return s.first()
+        if (tNs >= s.last().timestampNs) return s.last()
+        for (i in 0 until s.lastIndex) {
+            if (s[i + 1].timestampNs >= tNs) return lerp(s[i], s[i + 1], tNs)
+        }
+        return s.last()
+    }
 }

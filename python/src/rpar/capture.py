@@ -96,6 +96,8 @@ def record_simulated_session(
                 "thermal_reason": pipe.thermal_reason,
                 "skip_far_roi": pipe.skip_far_roi,
                 "dropped_infer": pipe.dropped_infer,
+                "timestamp_ns": frame.meta.sensor_timestamp_ns,
+                "queue_depth": view.queue_depth,
             },
             observations=[o.to_dict() for o in pipe.last_observations] if pipe.did_infer else None,
         )

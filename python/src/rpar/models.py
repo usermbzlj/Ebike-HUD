@@ -106,6 +106,7 @@ class LocationSample:
     bearing_deg: float | None
     horizontal_accuracy_m: float | None
     speed_accuracy_mps: float | None
+    interpolated: bool = False
 
 
 @dataclass(slots=True)

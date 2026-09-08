@@ -172,7 +172,11 @@ class RealtimePipeline(
             didInfer = false
         }
 
-        val tracks = tracker.update(observations, t0, allowNewHighConf = allowNew, qualityOk = allowNew, dtS = dt)
+        val tracks = tracker.update(
+            observations, t0, allowNewHighConf = allowNew, qualityOk = allowNew, dtS = dt,
+            cameraYawRate = frame.angularVelocity?.getOrNull(2) ?: 0.0,
+            frameW = frame.meta.width.toDouble(),
+        )
         var speed = frame.speedMps ?: frame.location?.speedMps
         val trackedObjs = ArrayList<TrackedRoadObject>()
         val fired = ArrayList<AlertDecision>()
@@ -219,7 +223,7 @@ class RealtimePipeline(
                 alertScore = 0.0,
                 polygon = tr.polygon,
                 bbox = tr.bbox,
-                maskRle = null,
+                maskRle = tr.maskRle,
                 sourceFrameId = tr.sourceFrameId,
                 mountProfileId = geometry.mount.profileId,
                 modelVersion = modelVersion,
@@ -238,11 +242,11 @@ class RealtimePipeline(
         }
         trackedObjs.sortByDescending { it.riskScore }
         trackedObjs.forEachIndexed { i, o -> o.labelRank = i }
-        val primitives = primitives(trackedObjs, uiMode, sel.q, frame.meta.width, frame.meta.height)
         val e2e = (if (doInfer) sel.ageMs else 0.0) + inferMs
         latencies.addLast(e2e)
         while (latencies.size > 120) latencies.removeFirst()
         val p95 = percentile(latencies, 95.0)
+        val primitives = primitives(trackedObjs, uiMode, sel.q, frame.meta.width, frame.meta.height, frame.angularVelocity?.getOrNull(2) ?: 0.0, p95)
         var inferFps = 0.0
         if (inferTimes.size >= 2) {
             val span = (inferTimes.last() - inferTimes.first()) / 1e9
@@ -282,7 +286,7 @@ class RealtimePipeline(
         return (stab * missPen).coerceIn(0.05, 1.0)
     }
 
-    private fun primitives(objs: List<TrackedRoadObject>, uiMode: UiMode, qmap: com.ebike.rpar.model.FrameQualityMap, frameW: Int, frameH: Int): List<RenderPrimitive> {
+    private fun primitives(objs: List<TrackedRoadObject>, uiMode: UiMode, qmap: com.ebike.rpar.model.FrameQualityMap, frameW: Int, frameH: Int, yawRate: Double = 0.0, latencyMs: Double = 0.0): List<RenderPrimitive> {
         val prims = ArrayList<RenderPrimitive>()
         if (qmap.occupancyOccludedRatio > 0.25) {
             prims += RenderPrimitive(
@@ -362,7 +366,7 @@ class RealtimePipeline(
                 labeled++
             }
             prims += RenderPrimitive(
-                obj.trackId, obj.polygon, color, dashed,
+                obj.trackId, displayCompensate(obj.polygon, yawRate, latencyMs, frameW), color, dashed,
                 thickness = if (high) 3.2f else 2f,
                 label = label,
                 labelPriority = obj.labelRank ?: 50,
@@ -371,6 +375,12 @@ class RealtimePipeline(
             )
         }
         return prims
+    }
+
+    private fun displayCompensate(poly: List<Pair<Float, Float>>, yawRate: Double, latencyMs: Double, frameW: Int): List<Pair<Float, Float>> {
+        val dx = (yawRate * (latencyMs / 1000.0) * frameW * 0.55).toFloat()
+        if (kotlin.math.abs(dx) < 0.5f) return poly
+        return poly.map { (x, y) -> (x + dx) to y }
     }
 
     private fun percentile(vals: ArrayDeque<Double>, p: Double): Double {

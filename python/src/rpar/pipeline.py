@@ -46,6 +46,19 @@ def _geom_consistency(tr: TrackInternal, dist_conf: float) -> float:
     return float(np.clip(0.4 + 0.6 * dist_conf, 0, 1))
 
 
+def _display_compensate(
+    poly: list[tuple[float, float]],
+    yaw_rate: float,
+    latency_ms: float,
+    frame_w: int,
+) -> list[tuple[float, float]]:
+    """GEO-007: shift overlay by predicted camera yaw over display latency."""
+    dx = float(yaw_rate) * (latency_ms / 1000.0) * float(frame_w) * 0.55
+    if abs(dx) < 0.5:
+        return poly
+    return [(x + dx, y) for x, y in poly]
+
+
 class RealtimePipeline:
     def __init__(
         self,
@@ -194,6 +207,8 @@ class RealtimePipeline:
             allow_new_high_conf=allow_new,
             quality_ok=allow_new,
             dt_s=dt,
+            camera_yaw_rate=float(frame.angular_velocity[2]) if frame.angular_velocity else 0.0,
+            frame_w=float(frame.meta.width),
         )
 
         speed = frame.speed_mps
@@ -245,7 +260,7 @@ class RealtimePipeline:
                 alert_score=0.0,
                 polygon=tr.polygon,
                 bbox=tr.bbox,
-                mask_rle=None,
+                mask_rle=tr.mask_rle,
                 source_frame_id=tr.source_frame_id,
                 mount_profile_id=self.geometry.mount.profile_id,
                 model_version=self.model_version,
@@ -269,12 +284,18 @@ class RealtimePipeline:
         for i, o in enumerate(tracked_objs):
             o.label_rank = i
 
-        primitives = self._primitives(
-            tracked_objs, ui_mode, sel_q, sel_frame.meta.width, sel_frame.meta.height
-        )
         e2e_ms = (age_ms if do_infer else 0.0) + infer_ms
         self._latencies.append(e2e_ms)
         p95 = float(np.percentile(self._latencies, 95)) if self._latencies else e2e_ms
+        primitives = self._primitives(
+            tracked_objs,
+            ui_mode,
+            sel_q,
+            sel_frame.meta.width,
+            sel_frame.meta.height,
+            yaw_rate=float(frame.angular_velocity[2]) if frame.angular_velocity else 0.0,
+            latency_ms=p95,
+        )
         infer_fps = 0.0
         if len(self._infer_times) >= 2:
             span = (self._infer_times[-1] - self._infer_times[0]) / 1e9
@@ -312,6 +333,8 @@ class RealtimePipeline:
         qmap: FrameQualityMap,
         frame_w: int,
         frame_h: int,
+        yaw_rate: float = 0.0,
+        latency_ms: float = 0.0,
     ) -> list[RenderPrimitive]:
         prims: list[RenderPrimitive] = []
         # occlusion tiles as unknown, not danger-red
@@ -448,7 +471,7 @@ class RealtimePipeline:
             prims.append(
                 RenderPrimitive(
                     track_id=obj.track_id,
-                    polygon=obj.polygon,
+                    polygon=_display_compensate(obj.polygon, yaw_rate, latency_ms, frame_w),
                     color_rgba=color,
                     dashed=dashed,
                     thickness=3.2 if high else 2.0,

@@ -18,7 +18,7 @@ from rpar.ml.synth_train import write_training_bundle
 from rpar.ml.train import split_sessions, write_model_package, write_run_card
 from rpar.report import write_report
 from rpar.replay import SessionReplay, scan_time_offset_ms
-from rpar.session import verify_session
+from rpar.session import export_bundle, export_split_zip, verify_session
 from rpar.share import export_share_bundle
 from rpar.simulator import RoadSimulator, SimConfig, write_preview_video
 
@@ -106,6 +106,11 @@ def main(argv: list[str] | None = None) -> int:
     tr.add_argument("--out", default="artifacts/train_synth")
     tr.add_argument("--export-tflite", action="store_true", help="write a real TFLite graph when TensorFlow is installed")
 
+    ex = sub.add_parser("export", help="zip a session; optional size-capped volumes")
+    ex.add_argument("session")
+    ex.add_argument("--out", default="artifacts/export")
+    ex.add_argument("--split-mb", type=float, default=0.0, help="if >0, emit .partNN.zip volumes")
+
     args = p.parse_args(argv)
     if args.cmd == "serve":
         from rpar.apps.server import main as serve_main
@@ -192,6 +197,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "train-synth":
         print(json.dumps(write_training_bundle(Path(args.out), export_tflite=args.export_tflite), indent=2)[:2000])
+        return 0
+    if args.cmd == "export":
+        src = Path(args.session)
+        dest = Path(args.out)
+        if args.split_mb and args.split_mb > 0:
+            parts = export_split_zip(src, dest, max_bytes=int(args.split_mb * 1024 * 1024))
+            print(json.dumps([str(p) for p in parts], indent=2))
+        else:
+            print(export_bundle(src, dest))
         return 0
     return 1
 

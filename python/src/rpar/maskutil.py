@@ -109,6 +109,25 @@ def rle_decode(counts: list[int], width: int, height: int) -> np.ndarray:
     return flat.reshape((height, width), order="F")
 
 
+def mask_rle_from_polygon(poly: list[tuple[float, float]], max_side: int = 160):
+    """Instance RLE over the object bbox (PER-004). Counts are Fortran-order on the bbox grid."""
+    from rpar.models import MaskRle
+
+    if len(poly) < 3:
+        return None
+    x0, y0, x1, y1 = polygon_bbox(poly)
+    bw = max(1, int(np.ceil(x1) - np.floor(x0)))
+    bh = max(1, int(np.ceil(y1) - np.floor(y0)))
+    scale = 1.0
+    if max(bw, bh) > max_side:
+        scale = max_side / float(max(bw, bh))
+        bw = max(1, int(round(bw * scale)))
+        bh = max(1, int(round(bh * scale)))
+    shifted = [((x - x0) * scale, (y - y0) * scale) for x, y in poly]
+    mask = mask_from_polygon(shifted, bw, bh)
+    return MaskRle(width=bw, height=bh, counts=rle_encode(mask), encoding="rle_cocoa")
+
+
 def simplify_polygon(poly: list[tuple[float, float]], epsilon: float = 2.5) -> list[tuple[float, float]]:
     import cv2
 

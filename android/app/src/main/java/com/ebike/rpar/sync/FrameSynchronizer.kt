@@ -9,7 +9,7 @@ class FrameSynchronizer(private val sensors: SensorHub) {
         val pose = sensors.interpolatePose(tNs = t)
         val gyro = sensors.interpolateVec(sensors.gyro, t)
         val accel = sensors.interpolateVec(sensors.accel, t)
-        val loc = sensors.lastLocation
+        val loc = sensors.interpolateLocation(t) ?: sensors.lastLocation
         val speed = frame.speedMps ?: loc?.speedMps
         return frame.copy(
             pose = pose ?: frame.pose,

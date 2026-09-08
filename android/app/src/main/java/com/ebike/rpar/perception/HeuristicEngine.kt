@@ -15,6 +15,7 @@ import com.ebike.rpar.model.bboxOf
 import com.ebike.rpar.model.ellipsePolygon
 import com.ebike.rpar.model.nmsPolygons
 import com.ebike.rpar.model.rectPolygon
+import com.ebike.rpar.model.rleFromPolygon
 import com.ebike.rpar.quality.GrayImage
 import com.ebike.rpar.quality.connectedComponents
 import com.ebike.rpar.quality.inRoadTrapezoid
@@ -337,7 +338,7 @@ class HeuristicEngine(private val cfg: RparConfig) : PerceptionEngine {
             geometryType = geo,
             state = state,
             severity = sev,
-            maskRle = null,
+            maskRle = rleFromPolygon(poly),
             polygon = poly,
             bbox = bbox,
             modelConfidence = conf.coerceIn(0.0, 1.0),

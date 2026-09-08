@@ -165,3 +165,56 @@ def alignment_error_p95_ms(camera_ts: list[int], imu_ts: list[int]) -> float:
             candidates.append(abs(int(imu[j - 1]) - t))
         err.append(min(candidates) / NS_PER_MS)
     return float(np.percentile(np.asarray(err), 95))
+
+
+def interpolate_location(samples: list, t_ns: int):
+    """Linear GPS interpolation onto a camera timestamp (SEN-003). Returns a LocationSample or None."""
+    from rpar.models import LocationSample
+
+    if not samples:
+        return None
+    samples = sorted(samples, key=lambda s: s.timestamp_ns)
+    if t_ns <= samples[0].timestamp_ns:
+        return samples[0]
+    if t_ns >= samples[-1].timestamp_ns:
+        return samples[-1]
+    lo = samples[0]
+    hi = samples[-1]
+    for i in range(len(samples) - 1):
+        if samples[i + 1].timestamp_ns >= t_ns:
+            lo, hi = samples[i], samples[i + 1]
+            break
+    span = max(1, hi.timestamp_ns - lo.timestamp_ns)
+    u = (t_ns - lo.timestamp_ns) / span
+
+    def lerp(a, b):
+        if a is None:
+            return b
+        if b is None:
+            return a
+        return a + (b - a) * u
+
+    br = None
+    if lo.bearing_deg is not None and hi.bearing_deg is not None:
+        d = ((hi.bearing_deg - lo.bearing_deg + 540.0) % 360.0) - 180.0
+        br = (lo.bearing_deg + d * u) % 360.0
+    elif lo.bearing_deg is not None:
+        br = lo.bearing_deg
+    else:
+        br = hi.bearing_deg
+    gap_s = span / 1e9
+    acc_s = lerp(lo.speed_accuracy_mps, hi.speed_accuracy_mps)
+    if acc_s is None:
+        acc_s = 0.4
+    acc_s = acc_s * (1.0 + max(0.0, gap_s * 2.0))
+    return LocationSample(
+        timestamp_ns=t_ns,
+        latitude=lerp(lo.latitude, hi.latitude),
+        longitude=lerp(lo.longitude, hi.longitude),
+        altitude=lerp(lo.altitude, hi.altitude),
+        speed_mps=lerp(lo.speed_mps, hi.speed_mps),
+        bearing_deg=br,
+        horizontal_accuracy_m=lerp(lo.horizontal_accuracy_m, hi.horizontal_accuracy_m),
+        speed_accuracy_mps=acc_s,
+        interpolated=True,
+    )

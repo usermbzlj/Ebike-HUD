@@ -12,7 +12,7 @@ import numpy as np
 
 from rpar.config import ModelPackageRef, RparConfig
 from rpar.enums import GeometryType, InferenceBackend, ObjectState, SemanticType, Severity, VisibilityClass
-from rpar.maskutil import ellipse_polygon, nms_polygons, polygon_bbox, rect_polygon, simplify_polygon
+from rpar.maskutil import ellipse_polygon, mask_rle_from_polygon, nms_polygons, polygon_bbox, rect_polygon, simplify_polygon
 from rpar.models import PerceptionResult, RoadObservation, SynchronizedFrame
 from rpar.quality import mask_visibility
 from rpar.models import FrameQualityMap
@@ -159,6 +159,9 @@ class HeuristicPerceptionEngine:
         scored = [(o.polygon, o.model_confidence) for o in observations]
         keep = nms_polygons(scored, 0.4) if scored else []
         fused = [observations[i] for i in keep]
+        for o in fused:
+            if o.mask_rle is None:
+                o.mask_rle = mask_rle_from_polygon(o.polygon)
         road_poly = _mask_to_poly(road)
         dt = (perf_counter() - t0) * 1000.0
         return PerceptionResult(
@@ -435,6 +438,9 @@ class OraclePerceptionEngine:
                     calibrated_confidence=0.88,
                 )
             )
+        for o in obs:
+            if o.mask_rle is None:
+                o.mask_rle = mask_rle_from_polygon(o.polygon)
         return PerceptionResult(
             timestamp_ns=frame.meta.sensor_timestamp_ns,
             source_frame_id=frame.meta.frame_id,

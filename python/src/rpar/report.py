@@ -38,6 +38,13 @@ def build_report(session_dir: Path) -> dict[str, Any]:
         "gyro_peak": max(gyro_mags) if gyro_mags else None,
         "usable_frame_share": (sum(1 for b in blur if (b or 0) < 0.5) / len(blur)) if blur else None,
         "camera_interval": v.get("camera_interval"),
+        "n_inferred": sum(1 for d in diag if d.get("inferred")),
+        "mean_memory_mb": _mean([d.get("memory_mb") for d in diag]),
+        "thermal_series": [
+            {"timestamp_ns": d.get("timestamp_ns"), "thermal_c": d.get("thermal_c"), "battery_pct": d.get("battery_pct")}
+            for d in diag
+            if d.get("thermal_c") is not None or d.get("battery_pct") is not None
+        ][:: max(1, len(diag) // 240 or 1)],
         "visibility": dict(Counter(t.get("visibility_confidence") is not None for t in tracks)),
     }
     return report

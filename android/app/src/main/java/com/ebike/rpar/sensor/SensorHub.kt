@@ -32,6 +32,7 @@ class SensorHub(
     val accel = ConcurrentLinkedDeque<ImuSample>()
     val rv = ConcurrentLinkedDeque<ImuSample>()
     val poses = ConcurrentLinkedDeque<PoseSample>()
+    private val locations = ConcurrentLinkedDeque<LocationSample>()
     private val pending = ConcurrentLinkedDeque<ImuSample>()
     @Volatile var lastLocation: LocationSample? = null
     @Volatile var batteryPct: Int = -1
@@ -42,7 +43,9 @@ class SensorHub(
     private var lastAccelNs = 0L
     private var lastRvNs = 0L
     var gyroHz: Double = 0.0; var accelHz: Double = 0.0; var rvHz: Double = 0.0
+    var locationHz: Double = 0.0
     private var gyroCount = 0; private var accelCount = 0; private var rvCount = 0
+    private var locCount = 0
     private var rateWindowNs = 0L
     private val gyroGapsMs = ArrayList<Double>(512)
     private val accelGapsMs = ArrayList<Double>(512)
@@ -73,6 +76,7 @@ class SensorHub(
             .put("n_gyro", g.size)
             .put("n_accel", a.size)
             .put("n_rv", r.size)
+            .put("location_hz", locationHz)
     }
 
     fun start() {
@@ -105,7 +109,8 @@ class SensorHub(
         if (now - rateWindowNs > 1_000_000_000L) {
             val dt = (now - rateWindowNs) / 1e9
             gyroHz = gyroCount / dt; accelHz = accelCount / dt; rvHz = rvCount / dt
-            gyroCount = 0; accelCount = 0; rvCount = 0; rateWindowNs = now
+            locationHz = locCount / dt
+            gyroCount = 0; accelCount = 0; rvCount = 0; locCount = 0; rateWindowNs = now
         }
         refreshPower()
     }
@@ -180,8 +185,10 @@ class SensorHub(
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     override fun onLocationChanged(location: Location) {
+        locCount++
+        val ts = location.elapsedRealtimeNanos
         lastLocation = LocationSample(
-            timestampNs = SystemClock.elapsedRealtimeNanos(),
+            timestampNs = ts,
             latitude = location.latitude,
             longitude = location.longitude,
             altitude = if (location.hasAltitude()) location.altitude else null,
@@ -190,6 +197,16 @@ class SensorHub(
             horizontalAccuracyM = if (location.hasAccuracy()) location.accuracy.toDouble() else null,
             speedAccuracyMps = if (Build.VERSION.SDK_INT >= 26 && location.hasSpeedAccuracy()) location.speedAccuracyMetersPerSecond.toDouble() else null,
         )
+        lastLocation?.let {
+            locations.addLast(it)
+            while (locations.size > 64) locations.pollFirst()
+        }
+    }
+
+    fun interpolateLocation(tNs: Long): LocationSample? {
+        val list = locations.toList()
+        if (list.isEmpty()) return lastLocation
+        return com.ebike.rpar.model.LocationInterp.at(list, tNs) ?: lastLocation
     }
 
     private var lastPowerNs = 0L

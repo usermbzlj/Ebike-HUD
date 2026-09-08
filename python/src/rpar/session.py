@@ -292,6 +292,54 @@ def export_bundle(src: Path, dest: Path) -> Path:
     return Path(archive)
 
 
+def copy_resumable(src: Path, dest: Path, chunk: int = 8 * 1024 * 1024) -> Path:
+    """Resume a large copy from dest's current size (REC-006)."""
+    src = Path(src)
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    pos = dest.stat().st_size if dest.exists() else 0
+    with src.open("rb") as inf, dest.open("ab") as out:
+        inf.seek(pos)
+        while True:
+            buf = inf.read(chunk)
+            if not buf:
+                break
+            out.write(buf)
+    return dest
+
+
+def export_split_zip(src: Path, dest_prefix: Path, max_bytes: int = 512 * 1024 * 1024) -> list[Path]:
+    """Pack a session into size-capped zip volumes for copy/resume (REC-006)."""
+    import zipfile
+
+    src = Path(src)
+    dest_prefix = Path(dest_prefix)
+    dest_prefix.parent.mkdir(parents=True, exist_ok=True)
+    files = [p for p in sorted(src.rglob("*")) if p.is_file()]
+    parts: list[Path] = []
+    index = 1
+    current: list[Path] = []
+    size = 0
+    def flush(batch: list[Path], n: int) -> Path:
+        out = dest_prefix.parent / f"{dest_prefix.name}.part{n:02d}.zip"
+        with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for f in batch:
+                zf.write(f, f.relative_to(src).as_posix())
+        return out
+
+    for f in files:
+        n = f.stat().st_size
+        if current and size + n > max_bytes:
+            parts.append(flush(current, index))
+            index += 1
+            current, size = [], 0
+        current.append(f)
+        size += n
+    if current:
+        parts.append(flush(current, index))
+    return parts
+
+
 def iter_jsonl(path: Path) -> Iterable[dict[str, Any]]:
     if not path.exists():
         yield from ()

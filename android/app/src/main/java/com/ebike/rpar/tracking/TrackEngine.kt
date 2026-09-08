@@ -40,6 +40,7 @@ class TrackInternal(
     var fade: Double = 1.0,
     var sourceFrameId: Long = 0,
     var holdUntilNs: Long? = null,
+    var maskRle: com.ebike.rpar.model.MaskRle? = null,
 )
 
 class KalmanImage(private val q: Double, private val r: Double) {
@@ -154,6 +155,7 @@ class TrackEngine(private val cfg: TrackingConfig) {
             visibility = obs.visibility,
             mean = doubleArrayOf(z[0], z[1], 0.0, 0.0, z[2], z[3]),
             sourceFrameId = obs.sourceFrameId,
+            maskRle = obs.maskRle,
         )
         tracks[tr.trackId] = tr
         history += Triple(tr.trackId, tr.state, "spawn")
@@ -166,10 +168,13 @@ class TrackEngine(private val cfg: TrackingConfig) {
         allowNewHighConf: Boolean = true,
         qualityOk: Boolean = true,
         dtS: Double = 0.033,
+        cameraYawRate: Double = 0.0,
+        frameW: Double = 1920.0,
     ): List<TrackInternal> {
         tracks.values.forEach { tr ->
             val p = kf.predict(tr.mean, tr.cov, maxOf(dtS, 1e-3))
             tr.mean = p.first; tr.cov = p.second
+            tr.mean[0] += cameraYawRate * dtS * (frameW * 0.55)
         }
         val unused = tracks.keys.toMutableSet()
         val usedObs = HashSet<Int>()
@@ -210,6 +215,7 @@ class TrackEngine(private val cfg: TrackingConfig) {
             tr.qualityAtMask = obs.qualityAtMask
             tr.visibility = obs.visibility
             tr.sourceFrameId = obs.sourceFrameId
+            tr.maskRle = obs.maskRle
             if (obs.semanticType != SemanticType.UNKNOWN_ANOMALY) tr.semantic = obs.semanticType
             if (obs.geometryType != GeometryType.UNKNOWN) tr.geometry = obs.geometryType
             if (obs.state != ObjectState.UNKNOWN) tr.objectState = obs.state

@@ -9,7 +9,7 @@ import numpy as np
 from rpar.config import TrackingConfig
 from rpar.enums import GeometryType, LifecycleState, ObjectState, SemanticType, Severity, VisibilityClass
 from rpar.maskutil import bbox_iou, ground_contact, polygon_bbox, polygon_centroid
-from rpar.models import RoadObservation
+from rpar.models import MaskRle, RoadObservation
 
 
 @dataclass
@@ -42,6 +42,7 @@ class TrackInternal:
     fade: float = 1.0
     source_frame_id: int = 0
     hold_until_ns: int | None = None
+    mask_rle: MaskRle | None = None
 
 
 class KalmanImage:
@@ -108,6 +109,7 @@ class TrackEngine:
             visibility=obs.visibility,
             mean=np.array([z[0], z[1], 0, 0, z[2], z[3]], dtype=np.float64),
             source_frame_id=obs.source_frame_id,
+            mask_rle=obs.mask_rle,
         )
         self._next_id += 1
         self.tracks[tr.track_id] = tr
@@ -150,9 +152,13 @@ class TrackEngine:
         allow_new_high_conf: bool = True,
         quality_ok: bool = True,
         dt_s: float = 0.033,
+        camera_yaw_rate: float = 0.0,
+        frame_w: float = 1920.0,
     ) -> list[TrackInternal]:
         for tr in self.tracks.values():
             tr.mean, tr.cov = self.kf.predict(tr.mean, tr.cov, max(dt_s, 1e-3))
+            # TRK-002: rotational camera flow so handlebar yaw is not object motion
+            tr.mean[0] += float(camera_yaw_rate) * dt_s * (frame_w * 0.55)
 
         matches, unmatched_tracks = self._match(observations)
         updated: set[int] = set()
@@ -174,6 +180,7 @@ class TrackEngine:
             tr.quality_at_mask = obs.quality_at_mask
             tr.visibility = obs.visibility
             tr.source_frame_id = obs.source_frame_id
+            tr.mask_rle = obs.mask_rle
             if obs.semantic_type != SemanticType.UNKNOWN_ANOMALY:
                 tr.semantic = obs.semantic_type
             if obs.geometry_type != GeometryType.UNKNOWN:
