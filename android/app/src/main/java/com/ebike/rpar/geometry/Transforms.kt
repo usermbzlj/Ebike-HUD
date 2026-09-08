@@ -212,4 +212,16 @@ object Transforms {
         val n = sqrt(o.sumOf { it * it }).coerceAtLeast(1e-9)
         return o.map { it / n }.toDoubleArray()
     }
+
+    /** GEO-007: shift overlay by predicted camera yaw over display latency. */
+    fun displayCompensate(
+        poly: List<Pair<Float, Float>>,
+        yawRate: Double,
+        latencyMs: Double,
+        frameW: Int,
+    ): List<Pair<Float, Float>> {
+        val dx = (yawRate * (latencyMs / 1000.0) * frameW * 0.55).toFloat()
+        if (kotlin.math.abs(dx) < 0.5f) return poly
+        return poly.map { (x, y) -> (x + dx) to y }
+    }
 }

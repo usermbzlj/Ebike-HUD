@@ -71,7 +71,9 @@ class MainActivity : ComponentActivity() {
                         AppScreen.CALIBRATION -> CalibrationScreen(runtime)
                         AppScreen.CAPABILITY -> CapabilityScreen(
                             json = ui.capabilityJson,
+                            benchRunning = ui.benchRunning,
                             onProbe = { runtime.runCapability() },
+                            onSustained = { runtime.runSustainedBench() },
                             onShare = { shareCapability() },
                             onBack = { runtime.navigate(AppScreen.SETTINGS) },
                         )

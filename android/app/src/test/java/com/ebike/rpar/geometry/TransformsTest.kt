@@ -39,4 +39,14 @@ class TransformsTest {
         assertTrue(abs(fitted.cameraHeightM - truth.cameraHeightM) < 0.2)
         assertTrue(fitted.valid)
     }
+
+    @Test
+    fun displayCompensateShiftsOnYawRate() {
+        val poly = listOf(100f to 200f, 140f to 200f)
+        val still = Transforms.displayCompensate(poly, 0.0, 40.0, 1920)
+        assertTrue(still == poly)
+        val moved = Transforms.displayCompensate(poly, 2.0, 40.0, 1920)
+        assertTrue(moved[0].first > poly[0].first)
+        assertTrue(moved[0].second == poly[0].second)
+    }
 }

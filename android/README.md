@@ -34,6 +34,19 @@ Install on a device or emulator:
 .\gradlew.bat installDebug
 ```
 
+## Signing (chapter 12)
+
+Debug APK uses the Android default debug keystore (`~/.android/debug.keystore`). Do not commit keystores or passwords.
+
+Field / release APK:
+
+1. Create an upload keystore **outside this repo**.
+2. Put passwords in `android/keystore.properties` (gitignored) or environment variables — never in committed Gradle sources.
+3. Wire `signingConfigs.release` in `app/build.gradle.kts` when the team has a real key.
+4. Record the SHA-256 fingerprint in `docs/RELEASE_NOTES.md` after the first signed build.
+
+Until that key exists, `assembleDebug` is the installable deliverable for development.
+
 ## Emulator / safe mode
 
 The app starts without opening a camera. Replay and SAFE_MODE feed a generated road test pattern so perception, AR, and HUD work on an emulator.

@@ -149,6 +149,10 @@ def main(argv: list[str] | None = None) -> int:
     ia.add_argument("--out", default="artifacts/impact_align.json")
     ia.add_argument("--horizon", type=float, default=3.0)
 
+    ar = sub.add_parser("alert-rate", help="M4 false-voice rate from session alert logs")
+    ar.add_argument("sessions", nargs="+")
+    ar.add_argument("--out", default="artifacts/alert_rate.json")
+
     args = p.parse_args(argv)
     if args.cmd == "serve":
         from rpar.apps.server import main as serve_main
@@ -273,6 +277,11 @@ def main(argv: list[str] | None = None) -> int:
         from rpar.impact import write_impact_report
 
         print(json.dumps(write_impact_report(Path(args.session), Path(args.out), horizon_s=args.horizon), indent=2, ensure_ascii=False)[:8000])
+        return 0
+    if args.cmd == "alert-rate":
+        from rpar.alert_rate import write_alert_rate
+
+        print(json.dumps(write_alert_rate([Path(s) for s in args.sessions], Path(args.out)), indent=2, ensure_ascii=False))
         return 0
     if args.cmd == "export":
         src = Path(args.session)

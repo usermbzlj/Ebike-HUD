@@ -4,6 +4,7 @@ import com.ebike.rpar.alert.AlertPolicy
 import com.ebike.rpar.alert.visualScore
 import com.ebike.rpar.config.RparConfig
 import com.ebike.rpar.geometry.GeometryEngine
+import com.ebike.rpar.geometry.Transforms
 import com.ebike.rpar.model.AlertDecision
 import com.ebike.rpar.model.Direction
 import com.ebike.rpar.model.EnumCopy
@@ -429,7 +430,7 @@ class RealtimePipeline(
                 labeled++
             }
             prims += RenderPrimitive(
-                obj.trackId, displayCompensate(obj.polygon, yawRate, latencyMs, frameW), color, dashed,
+                obj.trackId, Transforms.displayCompensate(obj.polygon, yawRate, latencyMs, frameW), color, dashed,
                 thickness = (if (high) 3.2f else 2f) * stroke,
                 label = label,
                 labelPriority = obj.labelRank ?: 50,
@@ -438,12 +439,6 @@ class RealtimePipeline(
             )
         }
         return prims
-    }
-
-    private fun displayCompensate(poly: List<Pair<Float, Float>>, yawRate: Double, latencyMs: Double, frameW: Int): List<Pair<Float, Float>> {
-        val dx = (yawRate * (latencyMs / 1000.0) * frameW * 0.55).toFloat()
-        if (kotlin.math.abs(dx) < 0.5f) return poly
-        return poly.map { (x, y) -> (x + dx) to y }
     }
 
     private fun percentile(vals: ArrayDeque<Double>, p: Double): Double {

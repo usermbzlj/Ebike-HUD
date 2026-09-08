@@ -2,16 +2,17 @@ package com.ebike.rpar.alert
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
 import android.speech.tts.TextToSpeech
 import java.util.Locale
-import kotlin.math.sin
 
 class VoiceAlerts(private val context: Context) {
     private val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var tts: TextToSpeech? = null
+    private var focusRequest: AudioFocusRequest? = null
     var ready = false
         private set
     var useBluetooth = true
@@ -28,6 +29,7 @@ class VoiceAlerts(private val context: Context) {
     }
 
     fun stop() {
+        abandonFocus()
         tts?.stop()
         tts?.shutdown()
         tts = null
@@ -36,6 +38,7 @@ class VoiceAlerts(private val context: Context) {
 
     fun speak(phrase: String) {
         if (phrase.isBlank()) return
+        requestFocus()
         if (toneMode) {
             val dir = when {
                 phrase.startsWith("左") -> 0
@@ -52,28 +55,19 @@ class VoiceAlerts(private val context: Context) {
     fun playTestTone() = playDirectionTone(1)
 
     fun playDirectionTone(dir: Int) {
+        requestFocus()
         route()
         val sr = 22050
-        val n = sr / 5
-        val freq = when (dir) {
-            0 -> 660.0
-            2 -> 990.0
-            else -> 820.0
-        }
-        val buf = ShortArray(n)
-        for (i in buf.indices) {
-            val env = if (i < n / 8 || i > n * 7 / 8) 0.4 else 1.0
-            buf[i] = (sin(2 * Math.PI * freq * i / sr) * 11000 * env).toInt().toShort()
-        }
+        val buf = DirectionTone.pcmStereo(dir, sr)
         val track = AudioTrack(
             AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build(),
             AudioFormat.Builder()
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .setSampleRate(sr)
-                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
                 .build(),
             buf.size * 2,
             AudioTrack.MODE_STATIC,
@@ -87,7 +81,30 @@ class VoiceAlerts(private val context: Context) {
                 track.release()
             } catch (_: Throwable) {
             }
-        }, 600)
+            abandonFocus()
+        }, 400)
+    }
+
+    private fun requestFocus() {
+        val attrs = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            .build()
+        val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            .setAudioAttributes(attrs)
+            .setAcceptsDelayedFocusGain(false)
+            .build()
+        focusRequest = req
+        am.requestAudioFocus(req)
+    }
+
+    private fun abandonFocus() {
+        val req = focusRequest ?: return
+        try {
+            am.abandonAudioFocusRequest(req)
+        } catch (_: Throwable) {
+        }
+        focusRequest = null
     }
 
     private fun route() {

@@ -11,15 +11,26 @@ from typing import Any
 from rpar import SCHEMA_VERSION
 
 
-def _desktop_cpu_microbench() -> list[dict[str, Any]]:
+def percentile(sorted_asc: list[float], p: float) -> float:
+    if not sorted_asc:
+        return 0.0
+    i = int((p / 100.0) * (len(sorted_asc) - 1))
+    i = max(0, min(len(sorted_asc) - 1, i))
+    return float(sorted_asc[i])
+
+
+def cpu_bench_window(duration_s: float = 0.12, n: int = 36) -> dict[str, Any]:
+    """CAP-005 desktop CPU window. Phone 10 min bench is Android LiteRTBench."""
     import time
 
-    n = 48
     a = [[float((i * n + j) % 17) for j in range(n)] for i in range(n)]
     times: list[float] = []
     first = 0.0
-    for it in range(8):
-        t0 = time.perf_counter()
+    t0 = time.perf_counter()
+    end = t0 + max(0.02, duration_s)
+    it = 0
+    while time.perf_counter() < end or it < 2:
+        t1 = time.perf_counter()
         c = [[0.0] * n for _ in range(n)]
         for i in range(n):
             for k in range(n):
@@ -28,16 +39,43 @@ def _desktop_cpu_microbench() -> list[dict[str, Any]]:
                 for j in range(n):
                     acc += row[j] * a[j][k]
                 c[i][k] = acc
-        ms = (time.perf_counter() - t0) * 1000.0
+        ms = (time.perf_counter() - t1) * 1000.0
         if it == 0:
             first = ms
         else:
             times.append(ms)
+        it += 1
+        if it > 20_000:
+            break
     times.sort()
-    p50 = times[len(times) // 2] if times else first
-    p95 = times[int((len(times) - 1) * 0.95)] if times else first
+    ran = time.perf_counter() - t0
+    requested = 600.0
+    status = "ok" if ran >= requested * 0.95 else "short_probe"
+    return {
+        "backend": "CPU",
+        "status": "ok",
+        "first_ms": first,
+        "p50_ms": percentile(times, 50.0),
+        "p95_ms": percentile(times, 95.0),
+        "n_iters": len(times),
+        "ran_s": ran,
+        "stable_10min": {
+            "status": status,
+            "requested_s": requested,
+            "ran_s": ran,
+            "first_ms": first,
+            "p50_ms": percentile(times, 50.0),
+            "p95_ms": percentile(times, 95.0),
+            "note": "Desktop stub is short_probe. PKC110 capability screen runs requested_s=600.",
+        },
+        "source": "desktop_stub",
+    }
+
+
+def _desktop_cpu_microbench() -> list[dict[str, Any]]:
+    cpu = cpu_bench_window()
     return [
-        {"backend": "CPU", "status": "ok", "first_ms": first, "p50_ms": p50, "p95_ms": p95, "stable_10min": "not_run", "source": "desktop_stub"},
+        cpu,
         {"backend": "GPU", "status": "unavailable_on_desktop"},
         {"backend": "NPU", "status": "unavailable_on_desktop"},
     ]
@@ -120,7 +158,7 @@ def desktop_capability_stub() -> dict[str, Any]:
         },
         "acceleration": {
             "candidates": ["CPU", "GPU", "NPU"],
-            "note": "LiteRT microbench on PKC110; desktop records a CPU GEMM stub only",
+            "note": "LiteRT windowed microbench on PKC110; desktop records a short CPU GEMM stub (stable_10min.short_probe until the phone 10 min run)",
             "results": _desktop_cpu_microbench(),
         },
         "arcore": {"available": "probe_on_device", "depth": "probe_on_device", "required": False},

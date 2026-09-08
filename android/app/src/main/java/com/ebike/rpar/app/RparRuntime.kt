@@ -11,6 +11,7 @@ import com.ebike.rpar.calibration.CalibrationStore
 import com.ebike.rpar.camera.CameraController
 import com.ebike.rpar.camera.TestPatternSource
 import com.ebike.rpar.capability.CapabilityProbe
+import com.ebike.rpar.capability.LiteRTBench
 import com.ebike.rpar.config.RparConfig
 import com.ebike.rpar.diagnostics.DiagnosticBus
 import com.ebike.rpar.geometry.GeometryEngine
@@ -75,6 +76,7 @@ data class UiState(
     val dampingNote: String = "",
     val paused: Boolean = false,
     val lastMark: String = "",
+    val benchRunning: Boolean = false,
 )
 
 class RparRuntime(private val app: android.app.Application) {
@@ -442,6 +444,40 @@ class RparRuntime(private val app: android.app.Application) {
         val text = f.readText()
         _ui.value = _ui.value.copy(capabilityJson = text)
         return text
+    }
+
+    fun runSustainedBench(seconds: Long = 600L) {
+        if (_ui.value.benchRunning) return
+        _ui.value = _ui.value.copy(benchRunning = true, statusLine = "CAP-005 后端基准进行中")
+        scope.launch {
+            try {
+                val model = File(app.filesDir, "models/${pipeline.modelVersion}/model.tflite").takeIf { it.exists() }
+                val accel = LiteRTBench.run(model, durationMs = (seconds * 1000L).coerceAtLeast(50L)) { sensors.thermalC }
+                val dest = File(app.filesDir, "capability/capability_report.json")
+                val report = if (dest.exists()) {
+                    try {
+                        JSONObject(dest.readText())
+                    } catch (_: Throwable) {
+                        JSONObject()
+                    }
+                } else {
+                    JSONObject()
+                }
+                report.put("acceleration", accel)
+                probe.write(report)
+                _ui.value = _ui.value.copy(
+                    benchRunning = false,
+                    capabilityJson = dest.readText(),
+                    statusLine = "CAP-005 基准完成 ${"%.1f".format(seconds)}s",
+                )
+            } catch (t: Throwable) {
+                _ui.value = _ui.value.copy(
+                    benchRunning = false,
+                    lastError = t.message ?: t.javaClass.simpleName,
+                    statusLine = "CAP-005 基准失败",
+                )
+            }
+        }
     }
 
     fun exportSessionZip(redacted: Boolean = false): File? {

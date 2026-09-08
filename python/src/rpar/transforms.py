@@ -201,6 +201,19 @@ def chessboard_overlay_error_px(
     return max(errs) if errs else 999.0
 
 
+def display_compensate(
+    poly: list[tuple[float, float]],
+    yaw_rate: float,
+    latency_ms: float,
+    frame_w: int,
+) -> list[tuple[float, float]]:
+    """GEO-007: shift overlay by predicted camera yaw over display latency."""
+    dx = float(yaw_rate) * (latency_ms / 1000.0) * float(frame_w) * 0.55
+    if abs(dx) < 0.5:
+        return poly
+    return [(x + dx, y) for x, y in poly]
+
+
 def default_mount(width: int = 1920, height: int = 1080) -> MountProfile:
     k = default_intrinsics(width, height)
     horizon = float(k.cy) * 0.42

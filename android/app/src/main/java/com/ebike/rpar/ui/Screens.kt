@@ -333,13 +333,26 @@ private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun CapabilityScreen(json: String, onProbe: () -> String, onShare: () -> Unit, onBack: () -> Unit) {
+fun CapabilityScreen(
+    json: String,
+    benchRunning: Boolean = false,
+    onProbe: () -> String,
+    onSustained: () -> Unit = {},
+    onShare: () -> Unit,
+    onBack: () -> Unit,
+) {
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
         Text("能力报告", color = HudAccent, fontSize = 22.sp)
+        Text("短探测写入 Camera2/IMU/LiteRT 快照。10 分钟基准在后台跑，不阻塞预览。", color = HudMuted, fontSize = 12.sp)
         Row {
-            Button(onClick = { onProbe() }) { Text("重新探测") }
+            Button(onClick = { onProbe() }, enabled = !benchRunning) { Text("重新探测") }
             Spacer(Modifier.width(8.dp))
-            Button(onClick = onShare) { Text("分享 JSON") }
+            Button(onClick = onSustained, enabled = !benchRunning) {
+                Text(if (benchRunning) "基准进行中…" else "CAP-005 10 分钟基准")
+            }
+        }
+        Row {
+            Button(onClick = onShare, enabled = !benchRunning) { Text("分享 JSON") }
             Spacer(Modifier.width(8.dp))
             Button(onClick = onBack) { Text("返回") }
         }

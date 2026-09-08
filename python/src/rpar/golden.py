@@ -326,6 +326,7 @@ def run_video_file(
     lumas: list[float] = []
     still_at = {max(0, int(still_base * r) - 1) for r in still_ratios}
     stills: list[str] = []
+    first_confirm: dict[int, float] = {}
     while i < limit:
         ok, bgr = cap.read()
         if not ok:
@@ -383,6 +384,8 @@ def run_video_file(
                 confirmed_rows += 1
                 confirmed_ids.add(tr.track_id)
                 confirmed_sem.setdefault(tr.track_id, tr.semantic_type.value)
+                if tr.track_id not in first_confirm and tr.distance_m is not None and tr.distance_valid:
+                    first_confirm[tr.track_id] = float(tr.distance_m)
                 if tr.distance_m is not None and tr.distance_valid:
                     confirmed_dist_ids.add(tr.track_id)
                 if tr.direction != Direction.UNKNOWN:
@@ -424,6 +427,9 @@ def run_video_file(
         "road_frame_share": (road_frames / i) if i else 0.0,
         "occlusion_frame_share": (occ_frames / i) if i else 0.0,
         "confirmed_per_min": (n_confirmed_tracks / duration_s * 60.0) if duration_s > 0 else 0.0,
+        "first_confirm_distance_m": first_confirm,
+        "first_confirm_median_m": float(np.median(list(first_confirm.values()))) if first_confirm else None,
+        "first_confirm_is_gt": False,
         "mean_blur": float(np.mean(blurs)) if blurs else None,
         "mean_glare": float(np.mean(glares)) if glares else None,
         "mean_infer_fps": pipe.last_view.infer_fps if pipe.last_view else 0.0,

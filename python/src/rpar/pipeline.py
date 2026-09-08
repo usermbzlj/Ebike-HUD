@@ -33,6 +33,7 @@ from rpar.perception import PerceptionEngine
 from rpar.quality import QualityScheduler, evaluate_frame, perception_status
 from rpar.roi import far_polygon, near_polygon
 from rpar.tracking import TrackEngine, TrackInternal
+from rpar.transforms import display_compensate
 from rpar import SCHEMA_VERSION
 
 
@@ -82,19 +83,6 @@ def _geom_consistency(tr: TrackInternal, dist_conf: float) -> float:
     if tr.road_xy is None:
         return 0.35
     return float(np.clip(0.4 + 0.6 * dist_conf, 0, 1))
-
-
-def _display_compensate(
-    poly: list[tuple[float, float]],
-    yaw_rate: float,
-    latency_ms: float,
-    frame_w: int,
-) -> list[tuple[float, float]]:
-    """GEO-007: shift overlay by predicted camera yaw over display latency."""
-    dx = float(yaw_rate) * (latency_ms / 1000.0) * float(frame_w) * 0.55
-    if abs(dx) < 0.5:
-        return poly
-    return [(x + dx, y) for x, y in poly]
 
 
 class RealtimePipeline:
@@ -635,7 +623,7 @@ class RealtimePipeline:
             prims.append(
                 RenderPrimitive(
                     track_id=obj.track_id,
-                    polygon=_display_compensate(obj.polygon, yaw_rate, latency_ms, frame_w),
+                    polygon=display_compensate(obj.polygon, yaw_rate, latency_ms, frame_w),
                     color_rgba=color,
                     dashed=dashed,
                     thickness=(3.2 if high else 2.0) * stroke,

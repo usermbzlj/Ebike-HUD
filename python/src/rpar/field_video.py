@@ -292,6 +292,7 @@ def m2_clip_gates(clip: dict[str, Any]) -> dict[str, Any]:
     n_info = int(run.get("n_info_confirmed") or 0)
     if not n_info and sem:
         n_info = sum(int(v) for k, v in sem.items() if str(k) in _INFO_SEM)
+    first_med = run.get("first_confirm_median_m")
     n_solid = max(0, n_conf - n_info)
     road_share = float(run.get("road_frame_share") or 0.0)
     per_min = float(run.get("confirmed_per_min") or 0.0)
@@ -319,8 +320,10 @@ def m2_clip_gates(clip: dict[str, Any]) -> dict[str, Any]:
         "n_alerts_fired": n_alerts,
         "confirmed_per_min": per_min,
         "road_frame_share": road_share,
+        "first_confirm_median_m": first_med,
+        "first_confirm_is_gt": bool(run.get("first_confirm_is_gt")),
         "spec_solid_fp_per_min": 1.0 if is_night else (0.5 if is_day else None),
-        "note": "Night solid-damage==0 is an asphalt-noise proxy; info-layer puddle/gravel is allowed. Not GT first-confirm.",
+        "note": "Night solid-damage==0 is an asphalt-noise proxy; info-layer puddle/gravel is allowed. Predicted first-confirm is not geometric GT.",
     }
 
 

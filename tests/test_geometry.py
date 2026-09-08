@@ -65,3 +65,10 @@ def test_health_check_hides_distance_on_bad_horizon():
     ok = geo.health_check(0.0, 0.0, horizon_y_px=20.0)
     assert ok is False
     assert geo.valid is False
+
+
+def test_display_compensate_is_identity_without_yaw():
+    from rpar.transforms import display_compensate
+
+    poly = [(10.0, 20.0), (30.0, 40.0)]
+    assert display_compensate(poly, 0.0, 50.0, 1920) == poly

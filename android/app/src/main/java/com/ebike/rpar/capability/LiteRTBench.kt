@@ -6,16 +6,50 @@ import org.tensorflow.lite.Interpreter
 import java.io.File
 import kotlin.system.measureNanoTime
 
-/** CAP-005: CPU microbench always; Interpreter probe when a .tflite pack is present. */
+data class BenchWindow(
+    val firstMs: Double,
+    val p50Ms: Double,
+    val p95Ms: Double,
+    val nIters: Int,
+    val durationS: Double,
+    val memoryStartMb: Double,
+    val memoryEndMb: Double,
+    val thermalStartC: Double? = null,
+    val thermalEndC: Double? = null,
+    val backend: String = "CPU",
+)
+
+/** CAP-005: CPU/Interpreter windowed microbench. 10 min is a separate requested duration. */
 object LiteRTBench {
-    fun run(modelFile: File? = null): JSONObject {
-        val timesMs = ArrayList<Double>()
-        val n = 64
+    const val STABLE_10MIN_S = 600.0
+
+    fun percentile(sortedAsc: List<Double>, p: Double): Double {
+        if (sortedAsc.isEmpty()) return 0.0
+        val i = ((p / 100.0) * (sortedAsc.size - 1)).toInt().coerceIn(0, sortedAsc.lastIndex)
+        return sortedAsc[i]
+    }
+
+    fun memoryMb(): Double {
+        val rt = Runtime.getRuntime()
+        return (rt.totalMemory() - rt.freeMemory()) / (1024.0 * 1024.0)
+    }
+
+    fun measureGemmWindow(
+        durationMs: Long,
+        n: Int = 48,
+        thermalC: (() -> Double?)? = null,
+    ): BenchWindow {
         val a = FloatArray(n * n) { i -> (i % 17).toFloat() }
         val b = FloatArray(n * n) { i -> ((i * 3) % 13).toFloat() }
         val c = FloatArray(n * n)
+        val times = ArrayList<Double>()
+        val mem0 = memoryMb()
+        val t0c = thermalC?.invoke()
+        val t0 = System.nanoTime()
+        val end = t0 + durationMs.coerceAtLeast(20L) * 1_000_000L
         var first = 0.0
-        repeat(12) { iter ->
+        var iter = 0
+        while (System.nanoTime() < end || iter < 2) {
             val ns = measureNanoTime {
                 var k = 0
                 while (k < n) {
@@ -34,29 +68,92 @@ object LiteRTBench {
                 }
             }
             val ms = ns / 1e6
-            if (iter == 0) first = ms else timesMs += ms
+            if (iter == 0) first = ms else times += ms
+            iter++
+            if (iter > 50_000) break
         }
-        timesMs.sort()
-        val p50 = timesMs[timesMs.size / 2]
-        val p95 = timesMs[((timesMs.size - 1) * 0.95).toInt().coerceIn(0, timesMs.lastIndex)]
+        times.sort()
+        val dur = (System.nanoTime() - t0) / 1e9
+        return BenchWindow(
+            firstMs = first,
+            p50Ms = percentile(times, 50.0),
+            p95Ms = percentile(times, 95.0),
+            nIters = times.size,
+            durationS = dur,
+            memoryStartMb = mem0,
+            memoryEndMb = memoryMb(),
+            thermalStartC = t0c,
+            thermalEndC = thermalC?.invoke(),
+            backend = "CPU",
+        )
+    }
+
+    fun run(
+        modelFile: File? = null,
+        durationMs: Long = 800L,
+        thermalC: (() -> Double?)? = null,
+    ): JSONObject {
+        val win = measureGemmWindow(durationMs, thermalC = thermalC)
         val tflite = probeInterpreter(modelFile)
-        return JSONObject()
-            .put("candidates", JSONArray().put("CPU").put("GPU").put("NPU"))
-            .put("note", "CPU GEMM microbench; Interpreter probe on packaged .tflite; GPU/NPU need sideloaded CompiledModel")
-            .put("tflite", tflite)
-            .put(
-                "results",
-                JSONArray()
-                    .put(JSONObject().put("backend", "CPU").put("status", "ok").put("first_ms", first).put("p50_ms", p50).put("p95_ms", p95).put("stable_10min", "not_run").put("tflite", tflite.optString("status")))
-                    .put(JSONObject().put("backend", "GPU").put("status", "unavailable_until_litert_package"))
-                    .put(JSONObject().put("backend", "NPU").put("status", "unavailable_until_litert_package")),
-            )
+        val requested = STABLE_10MIN_S
+        val stableStatus = if (win.durationS >= requested * 0.95) "ok" else "short_probe"
+        val cpu = JSONObject()
+        cpu.put("backend", "CPU")
+        cpu.put("status", "ok")
+        cpu.put("first_ms", win.firstMs)
+        cpu.put("p50_ms", win.p50Ms)
+        cpu.put("p95_ms", win.p95Ms)
+        cpu.put("n_iters", win.nIters)
+        cpu.put("ran_s", win.durationS)
+        cpu.put("memory_start_mb", win.memoryStartMb)
+        cpu.put("memory_end_mb", win.memoryEndMb)
+        if (win.thermalStartC != null) cpu.put("thermal_start_c", win.thermalStartC)
+        if (win.thermalEndC != null) cpu.put("thermal_end_c", win.thermalEndC)
+        cpu.put("tflite", tflite.optString("status"))
+        val stable = JSONObject()
+        stable.put("status", stableStatus)
+        stable.put("requested_s", requested)
+        stable.put("ran_s", win.durationS)
+        stable.put("first_ms", win.firstMs)
+        stable.put("p50_ms", win.p50Ms)
+        stable.put("p95_ms", win.p95Ms)
+        stable.put("memory_start_mb", win.memoryStartMb)
+        stable.put("memory_end_mb", win.memoryEndMb)
+        if (win.thermalStartC != null) stable.put("thermal_start_c", win.thermalStartC)
+        if (win.thermalEndC != null) stable.put("thermal_end_c", win.thermalEndC)
+        stable.put("note", "CAP-005 10 min window is requested_s=600; first-run probe is short_probe until the capability screen runs the long bench")
+        val gpu = JSONObject()
+        gpu.put("backend", "GPU")
+        gpu.put("status", "unavailable_until_litert_package")
+        val npu = JSONObject()
+        npu.put("backend", "NPU")
+        npu.put("status", "unavailable_until_litert_package")
+        val results = JSONArray()
+        results.put(cpu)
+        results.put(gpu)
+        results.put(npu)
+        val cands = JSONArray()
+        cands.put("CPU")
+        cands.put("GPU")
+        cands.put("NPU")
+        val o = JSONObject()
+        o.put("candidates", cands)
+        o.put(
+            "note",
+            "CPU GEMM window + Interpreter probe; GPU/NPU need sideloaded CompiledModel on PKC110",
+        )
+        o.put("tflite", tflite)
+        o.put("results", results)
+        o.put("stable_10min", stable)
+        return o
     }
 
     fun probeInterpreter(modelFile: File?): JSONObject {
-        val o = JSONObject().put("runtime", "org.tensorflow.lite.Interpreter")
+        val o = JSONObject()
+        o.put("runtime", "org.tensorflow.lite.Interpreter")
         if (modelFile == null || !modelFile.exists()) {
-            return o.put("status", "runtime_present_no_file")
+            o.put("status", "runtime_present_no_file")
+            return o
         }
         return try {
             val interp = Interpreter(modelFile, Interpreter.Options().apply { setNumThreads(1) })
