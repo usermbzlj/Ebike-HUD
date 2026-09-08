@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rpar"
+version = "0.1.0"
+description = "Road Perception AR — desktop data loop, replay, training and golden-video regression"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Ebike-HUD / Road Perception AR" }]
+dependencies = [
+  "numpy",
+  "opencv-python-headless",
+  "pydantic>=2",
+  "pyyaml",
+  "fastapi",
+  "uvicorn[standard]",
+  "pillow",
+  "scipy",
+  "protobuf",
+  "jsonschema",
+  "python-multipart",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+train = ["torch", "torchvision"]
+
+[project.scripts]
+rpar = "rpar.apps.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["python/src"]
+
+[tool.setuptools.package-data]
+rpar = ["apps/static/**/*", "py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["python/src"]
+addopts = "-q --tb=short"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"

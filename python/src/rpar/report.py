@@ -1,0 +1,50 @@
+"""Ride statistics HTML/JSON reports (REP-004)."""
+
+from __future__ import annotations
+
+import json
+from collections import Counter
+from pathlib import Path
+from typing import Any
+
+from rpar.session import iter_jsonl, verify_session
+
+
+def build_report(session_dir: Path) -> dict[str, Any]:
+    root = Path(session_dir)
+    v = verify_session(root)
+    tracks = list(iter_jsonl(root / "perception" / "tracks.jsonl"))
+    alerts = list(iter_jsonl(root / "events" / "alerts.jsonl"))
+    diag = list(iter_jsonl(root / "diagnostics" / "runtime.jsonl"))
+    vis = Counter(t.get("lifecycle_state") for t in tracks)
+    fired = [a for a in alerts if a.get("fired")]
+    blur = [d.get("blur") for d in diag if d.get("blur") is not None]
+    report = {
+        "session": v.get("manifest"),
+        "verify_ok": v.get("ok"),
+        "verify_errors": v.get("errors"),
+        "track_states": dict(vis),
+        "n_track_rows": len(tracks),
+        "n_alerts_fired": len(fired),
+        "n_alert_decisions": len(alerts),
+        "mean_blur": sum(blur) / len(blur) if blur else None,
+        "camera_interval": v.get("camera_interval"),
+    }
+    return report
+
+
+def write_report(session_dir: Path, out_json: Path, out_html: Path | None = None) -> dict[str, Any]:
+    report = build_report(session_dir)
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    out_json.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    if out_html:
+        rows = "".join(f"<tr><th>{k}</th><td>{v}</td></tr>" for k, v in report.items())
+        out_html.write_text(
+            f"""<!doctype html><html lang="zh"><meta charset="utf-8">
+<title>RPAR ride report</title>
+<style>body{{font-family:Segoe UI,sans-serif;background:#07090d;color:#e8eef2;padding:24px}}
+table{{border-collapse:collapse}}td,th{{border:1px solid #223;padding:8px;text-align:left}}</style>
+<h1>Road Perception AR · 骑行报告</h1><table>{rows}</table></html>""",
+            encoding="utf-8",
+        )
+    return report

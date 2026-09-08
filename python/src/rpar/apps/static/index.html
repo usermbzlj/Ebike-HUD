@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Road Perception AR · 研究控制台</title>
+  <style>
+    :root {
+      --bg: #07090d;
+      --panel: rgba(10, 14, 20, 0.82);
+      --line: #1d2a33;
+      --text: #e7eef3;
+      --muted: #8aa0ad;
+      --teal: #2ed3c6;
+      --gold: #e7c15a;
+      --danger: #d7786a;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: "Segoe UI", "PingFang SC", sans-serif; }
+    body { display: grid; grid-template-rows: 56px 1fr; }
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 18px; border-bottom: 1px solid var(--line); background: #0b1016;
+    }
+    .brand { display: flex; gap: 12px; align-items: baseline; }
+    .brand h1 { font-size: 15px; letter-spacing: 0.16em; margin: 0; }
+    .brand span { color: var(--muted); font-size: 12px; }
+    .tabs { display: flex; gap: 8px; }
+    .tabs button, .ctrl button {
+      background: transparent; color: var(--text); border: 1px solid var(--line);
+      border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 12px;
+    }
+    .tabs button.active, .ctrl button.active { border-color: var(--teal); color: var(--teal); }
+    main { display: grid; grid-template-columns: 1fr 340px; min-height: 0; }
+    .stage { position: relative; min-height: 0; background: #05070a; }
+    #view { width: 100%; height: 100%; object-fit: contain; background: #05070a; }
+    .hud-top {
+      position: absolute; left: 18px; top: 16px; display: flex; gap: 8px; flex-wrap: wrap;
+    }
+    .pill {
+      background: var(--panel); border: 1px solid var(--teal); border-radius: 999px;
+      padding: 6px 12px; font-size: 13px; backdrop-filter: blur(8px);
+    }
+    .side { border-left: 1px solid var(--line); padding: 14px; overflow: auto; background: #0b1016; }
+    h2 { font-size: 12px; color: var(--muted); letter-spacing: 0.12em; margin: 16px 0 8px; }
+    .metric { display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; border-bottom: 1px solid #152028; }
+    .track {
+      border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin: 6px 0; font-size: 12px;
+    }
+    .track b { color: var(--teal); }
+    .ctrl { display: flex; flex-wrap: wrap; gap: 6px; }
+    .alert { color: var(--gold); font-size: 13px; min-height: 20px; }
+    .page { display: none; padding: 20px; overflow: auto; }
+    .page.active { display: block; }
+    .stage-wrap { display: none; min-height: 0; }
+    .stage-wrap.active { display: contents; }
+    pre { background: #05070a; border: 1px solid var(--line); padding: 12px; overflow: auto; font-size: 11px; }
+    .warn { color: var(--gold); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>ROAD PERCEPTION AR</h1>
+      <span>Camera · IMU · Geometry · On-device AI</span>
+    </div>
+    <div class="tabs">
+      <button class="active" data-tab="live">骑行/研究</button>
+      <button data-tab="cap">能力探测</button>
+      <button data-tab="cal">安装标定</button>
+      <button data-tab="mod">模型包</button>
+    </div>
+  </header>
+  <main>
+    <div class="stage-wrap active" id="wrap-live">
+      <section class="stage">
+        <img id="view" alt="AR preview" />
+        <div class="hud-top">
+          <div class="pill" id="speed">-- km/h</div>
+          <div class="pill" id="status">感知正常</div>
+        </div>
+      </section>
+      <aside class="side">
+        <div class="ctrl">
+          <button id="play">播放</button>
+          <button id="step">逐帧</button>
+          <button id="reset">重置</button>
+          <button id="mode">研究模式</button>
+          <button id="alerts">提醒开</button>
+          <button id="night">白天</button>
+          <button id="golden">黄金回归</button>
+        </div>
+        <div class="alert" id="alertLine"></div>
+        <h2>DIAGNOSTICS</h2>
+        <div class="metric"><span>AI / AR FPS</span><b id="mFps">—</b></div>
+        <div class="metric"><span>Latency p95</span><b id="mLat">—</b></div>
+        <div class="metric"><span>Blur / Glare</span><b id="mQ">—</b></div>
+        <div class="metric"><span>Backend</span><b id="mBk">—</b></div>
+        <div class="metric"><span>Model</span><b id="mMd">—</b></div>
+        <h2>TRACKS</h2>
+        <div id="tracks"></div>
+      </aside>
+    </div>
+    <section class="page" id="page-cap" style="grid-column: 1 / -1">
+      <h2>CAP-001 设备能力报告</h2>
+      <p class="warn">Camera2 / IMU / LiteRT 真值必须在 PKC110 上运行时探测，桌面仅显示契约与占位。</p>
+      <pre id="capPre">loading…</pre>
+    </section>
+    <section class="page" id="page-cal" style="grid-column: 1 / -1">
+      <h2>CAL-001 安装配置档</h2>
+      <p>左侧车把横屏主摄。未选择有效配置时禁止显示精确距离。</p>
+      <pre id="calPre">loading…</pre>
+    </section>
+    <section class="page" id="page-mod" style="grid-column: 1 / -1">
+      <h2>MOD-001 模型包</h2>
+      <pre id="modPre">loading…</pre>
+    </section>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let playing = false, ui = "RESEARCH", alerts = true, night = false, timer = null;
+
+    async function tick() {
+      const st = await fetch("/api/step").then(r => r.json());
+      $("view").src = "/api/frame.jpg?t=" + Date.now();
+      $("speed").textContent = (st.speed_kmh ?? 0).toFixed(0) + " km/h";
+      $("status").textContent = st.status_copy;
+      $("mFps").textContent = (st.ar_fps||0).toFixed(0) + " / " + (st.infer_fps||0).toFixed(1);
+      $("mLat").textContent = (st.latency_p95_ms||0).toFixed(0) + " ms";
+      $("mQ").textContent = (st.blur||0).toFixed(2) + " / " + (st.glare||0).toFixed(2);
+      $("mBk").textContent = st.backend;
+      $("mMd").textContent = st.model_version;
+      const fired = (st.alerts||[]).filter(a => a.fired);
+      $("alertLine").textContent = fired.length ? fired.map(a => a.phrase).join(" · ") : "";
+      $("tracks").innerHTML = (st.tracks||[]).slice(0, 8).map(t =>
+        `<div class="track"><b>#${t.track_id}</b> ${t.lifecycle_state}<br/>${t.semantic_type} · ${t.direction}<br/>d=${t.distance_m==null?"隐藏":t.distance_m.toFixed(1)+" m"} · eff=${(t.effective_confidence||0).toFixed(2)} · risk=${(t.risk_score||0).toFixed(2)}</div>`
+      ).join("");
+    }
+    $("play").onclick = () => {
+      playing = !playing;
+      $("play").textContent = playing ? "暂停" : "播放";
+      if (playing) timer = setInterval(tick, 70);
+      else clearInterval(timer);
+    };
+    $("step").onclick = () => tick();
+    $("reset").onclick = async () => { await fetch("/api/reset?night=" + night, {method:"POST"}); tick(); };
+    $("mode").onclick = async () => {
+      ui = ui === "RESEARCH" ? "RIDING" : "RESEARCH";
+      $("mode").textContent = ui === "RIDING" ? "骑行模式" : "研究模式";
+      await fetch(`/api/mode?ui=${ui}&alerts=${alerts}`, {method:"POST"});
+    };
+    $("alerts").onclick = async () => {
+      alerts = !alerts;
+      $("alerts").textContent = alerts ? "提醒开" : "提醒关";
+      await fetch(`/api/mode?ui=${ui}&alerts=${alerts}`, {method:"POST"});
+    };
+    $("night").onclick = async () => {
+      night = !night;
+      $("night").textContent = night ? "夜间" : "白天";
+      await fetch("/api/reset?night=" + night, {method:"POST"});
+      tick();
+    };
+    $("golden").onclick = async () => {
+      $("alertLine").textContent = "正在跑黄金回归…";
+      const m = await fetch("/api/golden", {method:"POST"}).then(r => r.json());
+      $("alertLine").textContent = "golden MAE=" + (m.distance_mae_m ?? "n/a") + " dir=" + (m.direction_accuracy ?? "n/a");
+    };
+    document.querySelectorAll(".tabs button").forEach(btn => {
+      btn.onclick = async () => {
+        document.querySelectorAll(".tabs button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        const tab = btn.dataset.tab;
+        document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+        $("wrap-live").classList.toggle("active", tab === "live");
+        if (tab !== "live") $("page-" + (tab==="cap"?"cap":tab==="cal"?"cal":"mod")).classList.add("active");
+        if (tab === "cap") $("capPre").textContent = JSON.stringify(await fetch("/api/capability").then(r=>r.json()), null, 2);
+        if (tab === "cal") $("calPre").textContent = JSON.stringify(await fetch("/api/mount").then(r=>r.json()), null, 2);
+        if (tab === "mod") {
+          await fetch("/api/models/ensure-default", {method:"POST"});
+          $("modPre").textContent = JSON.stringify(await fetch("/api/models").then(r=>r.json()), null, 2);
+        }
+      };
+    });
+    tick();
+  </script>
+</body>
+</html>

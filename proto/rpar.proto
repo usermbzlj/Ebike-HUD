@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package rpar.v1;
+
+// Logical schema for high-rate logs (spec §6.5). Desktop V0.1 also writes JSONL
+// with the same field names so sessions remain human-auditable.
+
+message FrameMeta {
+  int64 frame_id = 1;
+  int64 sensor_timestamp_ns = 2;
+  int64 image_timestamp_ns = 3;
+  optional int64 exposure_time_ns = 4;
+  optional int32 iso = 5;
+  optional float focal_length_mm = 6;
+  optional float focus_distance_diopters = 7;
+  optional string af_state = 8;
+  optional string ae_state = 9;
+  optional string awb_state = 10;
+  repeated int32 crop_region = 11;
+  optional string stabilization_mode = 12;
+}
+
+message ImuSample {
+  int64 timestamp_ns = 1;
+  string sensor_type = 2;
+  float x = 3;
+  float y = 4;
+  float z = 5;
+  int32 accuracy = 6;
+  float source_rate_hz = 7;
+}
+
+message PoseSample {
+  int64 timestamp_ns = 1;
+  repeated float quaternion_xyzw = 2;
+  repeated float gravity_xyz = 3;
+  float pose_confidence = 4;
+}
+
+message LocationSample {
+  int64 timestamp_ns = 1;
+  optional double latitude = 2;
+  optional double longitude = 3;
+  optional double altitude = 4;
+  optional float speed_mps = 5;
+  optional float bearing_deg = 6;
+  optional float horizontal_accuracy_m = 7;
+  optional float speed_accuracy_mps = 8;
+}

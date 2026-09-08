@@ -1,0 +1,90 @@
+{
+  "schema_version": "1.0",
+  "default_mount_id": "left_handlebar_v1",
+  "quality": {
+    "laplacian_usable": 18.0,
+    "motion_blur_block": 0.62,
+    "glare_block": 0.45,
+    "underexposure_block": 0.72,
+    "overexposure_block": 0.55,
+    "min_road_visible": 0.18,
+    "max_selected_age_ms": 100.0,
+    "buffer_seconds": 0.5,
+    "tile_cols": 8,
+    "tile_rows": 6,
+    "lens_drop_blob_min": 12
+  },
+  "tracking": {
+    "confirm_window_s": 0.40,
+    "min_confirm_hits": 3,
+    "candidate_max_age_s": 0.35,
+    "low_quality_hold_s": 0.45,
+    "passed_remove_s": 0.50,
+    "iou_match": 0.25,
+    "center_match_px": 80.0,
+    "process_noise": 18.0,
+    "meas_noise": 6.0,
+    "unknown_anomaly_extra_hits": 2
+  },
+  "geometry": {
+    "corridor_half_width_m": 0.85,
+    "across_min_width_m": 1.6,
+    "near_boundary_m": 2.2,
+    "far_display_m": 30.0,
+    "distance_mae_near_m": 2.5,
+    "distance_mae_far_m": 5.0,
+    "min_speed_for_ttc_mps": 2.0,
+    "pitch_health_deg": 8.0,
+    "roll_health_deg": 10.0,
+    "hide_distance_if_invalid": true
+  },
+  "alert": {
+    "enabled_default": true,
+    "score_threshold": 0.62,
+    "global_cooldown_s": 2.2,
+    "class_cooldown_s": 4.0,
+    "min_severity": 2,
+    "min_path_relevance": 0.45,
+    "min_visibility": 0.40,
+    "min_effective": 0.48,
+    "realert_severity_jump": 1,
+    "pause_on_degraded": true
+  },
+  "render": {
+    "riding_max_labels": 5,
+    "ar_target_fps": 60,
+    "ar_min_fps": 30,
+    "candidate_alpha": 0.35,
+    "confirmed_alpha": 0.85,
+    "overlay_error_px": 8.0,
+    "night_brightness": 0.72
+  },
+  "camera": {
+    "width": 1920,
+    "height": 1080,
+    "target_fps": 60,
+    "fallback_fps": 30,
+    "dynamic_range": "SDR",
+    "prefer_preview_plus_yuv_plus_record": true,
+    "segment_seconds": 300,
+    "bitrate_mbps": 25.0,
+    "lock_physical_camera": true
+  },
+  "runtime": {
+    "infer_fps": 12.0,
+    "quality_fps": 30.0,
+    "tracking_fps": 30.0,
+    "e2e_p95_ms": 150.0,
+    "thermal_min_infer_fps": 8.0,
+    "memory_target_mb": 1536.0,
+    "startup_preview_s": 5.0
+  },
+  "model": {
+    "package_id": "heuristic-cv-0.1.0",
+    "engine": "heuristic",
+    "input_far": [768, 384],
+    "input_near": [640, 480],
+    "sha256": "",
+    "compatible_app": ">=0.1.0"
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-09-08T11:03:41.052477+00:00",
+  "source": "desktop_stub",
+  "device": {
+    "manufacturer": "runtime-detected",
+    "model": "PKC110",
+    "product": "Find X8 Pro",
+    "os_version": "runtime-detected",
+    "host_probe": {
+      "system": "Windows",
+      "release": "11",
+      "machine": "AMD64",
+      "python": "3.12.14"
+    }
+  },
+  "camera": {
+    "hardware_level": "unavailable_on_desktop",
+    "cameras": [
+      {
+        "id": "rear_main",
+        "logical": true,
+        "facing": "BACK",
+        "outputs": [
+          {
+            "format": "YUV_420_888",
+            "sizes": [
+              "1920x1080",
+              "1280x720"
+            ],
+            "fps": [
+              30,
+              60
+            ]
+          },
+          {
+            "format": "PRIVATE",
+            "sizes": [
+              "1920x1080"
+            ],
+            "fps": [
+              30,
+              60
+            ]
+          }
+        ],
+        "ois": "runtime-detected",
+        "video_stabilization": "runtime-detected",
+        "preview_stabilization": "runtime-detected",
+        "dynamic_range": [
+          "SDR"
+        ],
+        "intrinsics": "runtime-detected",
+        "rolling_shutter": "runtime-detected"
+      }
+    ],
+    "concurrent_streams": [
+      {
+        "combo": "preview+yuv+record",
+        "status": "probe_on_device",
+        "actual_fps": null
+      }
+    ]
+  },
+  "sensors": {
+    "gyro": {
+      "max_hz": null,
+      "actual_hz": null,
+      "batch_delay_ms": null,
+      "status": "probe_on_device"
+    },
+    "accel": {
+      "max_hz": null,
+      "actual_hz": null,
+      "status": "probe_on_device"
+    },
+    "rotation_vector": {
+      "max_hz": null,
+      "actual_hz": null,
+      "status": "probe_on_device"
+    },
+    "high_sampling_rate_permission": "probe_on_device"
+  },
+  "acceleration": {
+    "candidates": [
+      "CPU",
+      "GPU",
+      "NPU"
+    ],
+    "note": "LiteRT microbench runs on PKC110 only",
+    "results": []
+  },
+  "arcore": {
+    "available": "probe_on_device",
+    "depth": "probe_on_device",
+    "required": false
+  },
+  "audio": {
+    "tts": true,
+    "bluetooth": "probe_on_device",
+    "routes": [
+      "speaker",
+      "headset"
+    ]
+  },
+  "availability_flags": {
+    "ois": "unavailable_until_probe",
+    "preview_stabilization": "unavailable_until_probe",
+    "npu": "unavailable_until_probe"
+  }
+}

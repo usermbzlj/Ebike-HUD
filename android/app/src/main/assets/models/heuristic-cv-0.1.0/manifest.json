@@ -1,0 +1,13 @@
+{
+  "package_id": "heuristic-cv-0.1.0",
+  "engine": "heuristic",
+  "version": "0.1.0",
+  "compatible_app": ">=0.1.0",
+  "dual_scale": true,
+  "input_far": [768, 384],
+  "input_near": [640, 480],
+  "sha256": "",
+  "outputs": "RoadObservation",
+  "replaceable": true,
+  "notes": "On-device classical CV; no TFLite tensors leaked to UI."
+}

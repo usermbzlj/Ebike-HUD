@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TrackedRoadObject",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "track_id",
+    "timestamp_ns",
+    "lifecycle_state",
+    "semantic_type",
+    "geometry_type",
+    "object_state",
+    "direction",
+    "effective_confidence",
+    "risk_score"
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "track_id": { "type": "integer" },
+    "timestamp_ns": { "type": "integer" },
+    "lifecycle_state": {
+      "enum": ["CANDIDATE", "TRACKED", "CONFIRMED", "ALERTED", "PASSED", "EXPIRED"]
+    },
+    "semantic_type": { "type": "string" },
+    "geometry_type": { "type": "string" },
+    "object_state": { "enum": ["normal", "abnormal", "unknown"] },
+    "severity": { "type": "integer" },
+    "direction": {
+      "enum": ["LEFT_FRONT", "CENTER_FRONT", "RIGHT_FRONT", "ACROSS", "UNKNOWN"]
+    },
+    "distance_m": { "type": ["number", "null"] },
+    "distance_confidence": { "type": "number" },
+    "distance_valid": { "type": "boolean" },
+    "ttc_s": { "type": ["number", "null"] },
+    "effective_confidence": { "type": "number" },
+    "risk_score": { "type": "number" }
+  }
+}

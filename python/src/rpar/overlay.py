@@ -1,0 +1,96 @@
+"""AR overlay compositor used by desktop replay, golden videos and reports."""
+
+from __future__ import annotations
+
+from typing import Iterable
+
+import cv2
+import numpy as np
+
+from rpar.enums import PerceptionStatus, UiMode
+from rpar.models import PerceptionView, RenderPrimitive
+
+
+PALETTE = {
+    "anomaly": (40, 210, 200),
+    "occlusion": (140, 150, 160),
+    "corridor": (180, 200, 40),
+    "status": (240, 240, 240),
+}
+
+
+def draw_poly(img: np.ndarray, prim: RenderPrimitive) -> None:
+    if len(prim.polygon) < 3:
+        return
+    pts = np.array(prim.polygon, dtype=np.int32)
+    color = tuple(int(np.clip(c * 255, 0, 255)) for c in prim.color_rgba[:3][::-1])
+    alpha = float(np.clip(prim.color_rgba[3], 0, 1))
+    overlay = img.copy()
+    cv2.fillPoly(overlay, [pts], color)
+    cv2.addWeighted(overlay, alpha * 0.28, img, 1 - alpha * 0.28, 0, img)
+    if prim.dashed:
+        for i in range(len(pts)):
+            a = pts[i]
+            b = pts[(i + 1) % len(pts)]
+            if i % 2 == 0:
+                cv2.line(img, tuple(a), tuple(b), color, max(1, int(prim.thickness)), cv2.LINE_AA)
+    else:
+        cv2.polylines(img, [pts], True, color, max(1, int(prim.thickness)), cv2.LINE_AA)
+
+
+def draw_label(img: np.ndarray, prim: RenderPrimitive) -> None:
+    if not prim.label or len(prim.polygon) < 1:
+        return
+    pts = np.array(prim.polygon, dtype=np.int32)
+    x = int(np.clip(pts[:, 0].mean(), 8, img.shape[1] - 160))
+    y = int(np.clip(pts[:, 1].min() - 12, 28, img.shape[0] - 8))
+    (tw, th), _ = cv2.getTextSize(prim.label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+    cv2.rectangle(img, (x - 8, y - th - 8), (x + tw + 10, y + 6), (10, 12, 16), -1)
+    cv2.rectangle(img, (x - 8, y - th - 8), (x + tw + 10, y + 6), (40, 210, 200), 1)
+    cv2.putText(img, prim.label, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (236, 244, 248), 1, cv2.LINE_AA)
+
+
+def compose(bgr: np.ndarray, view: PerceptionView, ui_mode: UiMode = UiMode.RIDING) -> np.ndarray:
+    img = bgr.copy()
+    prims = sorted(view.primitives, key=lambda p: p.label_priority, reverse=True)
+    for p in prims:
+        draw_poly(img, p)
+    for p in prims:
+        draw_label(img, p)
+    _hud(img, view, ui_mode)
+    return img
+
+
+def _hud(img: np.ndarray, view: PerceptionView, ui_mode: UiMode) -> None:
+    h, w = img.shape[:2]
+    speed = f"{view.speed_kmh:.0f} km/h" if view.speed_kmh is not None else "-- km/h"
+    cv2.rectangle(img, (24, 20), (210, 64), (8, 10, 14), -1)
+    cv2.rectangle(img, (24, 20), (210, 64), (40, 210, 200), 1)
+    cv2.putText(img, speed, (36, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (236, 244, 248), 2, cv2.LINE_AA)
+    if ui_mode == UiMode.RESEARCH:
+        lines = [
+            f"FPS {view.ar_fps:.0f} / AI {view.infer_fps:.0f}",
+            f"Latency p95 {view.latency_p95_ms:.0f}ms",
+            f"Blur {view.blur:.2f} Glare {view.glare:.2f}",
+            f"Backend {view.backend.value}  {view.model_version}",
+        ]
+        cv2.rectangle(img, (24, 78), (430, 186), (8, 10, 14), -1)
+        for i, line in enumerate(lines):
+            cv2.putText(img, line, (36, 106 + i * 22), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 214, 220), 1, cv2.LINE_AA)
+    bar = img[h - 54 : h, 0:w].copy()
+    cv2.rectangle(bar, (0, 0), (w, 54), (8, 10, 14), -1)
+    cv2.addWeighted(bar, 0.72, img[h - 54 : h, 0:w], 0.28, 0, img[h - 54 : h, 0:w])
+    status = view.status_copy
+    rec = f"REC {int(view.rec_seconds // 3600):02d}:{int(view.rec_seconds % 3600 // 60):02d}:{int(view.rec_seconds % 60):02d}"
+    cv2.putText(
+        img,
+        f"{status}  ·  {rec}  ·  {view.model_version}",
+        (28, h - 20),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        (220, 230, 236),
+        1,
+        cv2.LINE_AA,
+    )
+    if view.status != PerceptionStatus.NORMAL:
+        cv2.putText(img, "PERCEPTION DEGRADED", (w - 360, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (180, 200, 220), 1, cv2.LINE_AA)

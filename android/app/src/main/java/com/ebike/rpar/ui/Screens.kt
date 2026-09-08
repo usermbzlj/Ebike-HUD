@@ -1,0 +1,271 @@
+package com.ebike.rpar.ui
+
+import android.view.TextureView
+import android.widget.ImageView
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.ebike.rpar.app.AppScreen
+import com.ebike.rpar.app.RparRuntime
+import com.ebike.rpar.ar.ArGlView
+import com.ebike.rpar.model.RunMode
+import com.ebike.rpar.model.StabilizationMode
+import com.ebike.rpar.model.UiMode
+
+@Composable
+fun DisclaimerScreen(onAccept: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize().padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text("Road Perception AR", color = HudAccent, fontSize = 28.sp)
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "实验性功能，不能替代骑行者观察，不输出控制指令。本系统不提供转向或制动建议，请始终以自身观察为准。",
+            color = HudText,
+            fontSize = 16.sp,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Experimental assist only. Does not replace rider observation. No control commands.",
+            color = HudMuted,
+            fontSize = 14.sp,
+        )
+        Spacer(Modifier.height(24.dp))
+        Button(onClick = onAccept, colors = ButtonDefaults.buttonColors(containerColor = HudAccent)) {
+            Text("我已了解，继续", color = HudBg)
+        }
+    }
+}
+
+@Composable
+fun FirstRunScreen(
+    json: String,
+    onProbe: () -> String,
+    onShare: () -> Unit,
+    onContinue: () -> Unit,
+    onRequestPerms: () -> Unit,
+) {
+    Column(Modifier.fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState())) {
+        Text("能力探测 (CAP-001)", color = HudAccent, fontSize = 22.sp)
+        Text("首次启动：探测 Camera2 / 传感器 / TTS。结果仅保存在本机。", color = HudMuted, fontSize = 14.sp)
+        Spacer(Modifier.height(12.dp))
+        Row {
+            Button(onClick = onRequestPerms) { Text("授予权限") }
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = { onProbe() }) { Text("运行探测") }
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = onShare) { Text("导出 JSON") }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(json.ifBlank { "尚未探测" }, color = HudText, fontSize = 11.sp)
+        Spacer(Modifier.height(16.dp))
+        Button(onClick = onContinue, colors = ButtonDefaults.buttonColors(containerColor = HudAccent)) {
+            Text("进入骑行界面", color = HudBg)
+        }
+    }
+}
+
+@Composable
+fun HudScreen(runtime: RparRuntime, onOpenSettings: () -> Unit) {
+    val ui by runtime.ui.collectAsState()
+    val ctx = LocalContext.current
+    val act = ctx as MainActivity
+    val useCam = shouldUseCamera(runtime, act.hasCamera())
+    Box(Modifier.fillMaxSize()) {
+        if (useCam) {
+            AndroidView(factory = { TextureView(it).also { tv -> bindTexture(tv, runtime, true) } }, modifier = Modifier.fillMaxSize())
+        } else {
+            DisposableEffect(Unit) {
+                runtime.startCapture(null, false)
+                onDispose { runtime.stopCapture() }
+            }
+            AndroidView(factory = { ImageView(it).also { iv -> bindPattern(iv, runtime) } }, modifier = Modifier.fillMaxSize())
+        }
+        AndroidView(
+            factory = { ArGlView(it) },
+            update = { gl ->
+                val v = ui.view
+                if (v != null) gl.setPrimitives(v.primitives, ui.previewSize.width, ui.previewSize.height)
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(HudPanel)
+                        .border(1.dp, HudAccent, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    val spd = ui.view?.speedKmh
+                    Text(if (spd != null) "%.0f km/h".format(spd) else "-- km/h", color = HudText, fontSize = 22.sp)
+                }
+                if (ui.uiMode == UiMode.RESEARCH) {
+                    Column(Modifier.clip(RoundedCornerShape(8.dp)).background(HudPanel).padding(10.dp)) {
+                        val v = ui.view
+                        Text("FPS ${v?.arFps?.toInt() ?: 0} / AI ${v?.inferFps?.toInt() ?: 0}", color = HudText, fontSize = 12.sp)
+                        Text("p95 ${v?.latencyP95Ms?.toInt() ?: 0} ms", color = HudText, fontSize = 12.sp)
+                        Text("Blur ${"%.2f".format(v?.blur ?: 0.0)}  Glare ${"%.2f".format(v?.glare ?: 0.0)}", color = HudText, fontSize = 12.sp)
+                        Text("Temp ${v?.thermalC?.let { "%.0f°C".format(it) } ?: "--"}", color = HudText, fontSize = 12.sp)
+                        Text("Tracks ${v?.tracks?.joinToString { it.trackId.toString() } ?: "-"}", color = HudMuted, fontSize = 11.sp)
+                    }
+                }
+                if (!ui.touchLocked) {
+                    TextButton(onClick = onOpenSettings) { Text("设置", color = HudAccent) }
+                }
+            }
+            Box(Modifier.fillMaxSize()) {
+                val labels = ui.view?.primitives?.filter { it.label != null }?.take(if (ui.uiMode == UiMode.RIDING) 5 else 12).orEmpty()
+                Column(Modifier.align(Alignment.CenterEnd).padding(16.dp)) {
+                    labels.forEach { p ->
+                        Text(p.label ?: "", color = HudText, fontSize = 14.sp, modifier = Modifier.padding(4.dp).background(HudPanel).padding(6.dp))
+                    }
+                }
+            }
+        }
+        Row(
+            Modifier.align(Alignment.BottomStart).fillMaxWidth().height(48.dp).background(HudPanel).padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(ui.statusLine, color = HudText, fontSize = 14.sp)
+            Spacer(Modifier.weight(1f))
+            val rec = ui.view?.recSeconds ?: 0.0
+            val hh = (rec / 3600).toInt(); val mm = ((rec % 3600) / 60).toInt(); val ss = (rec % 60).toInt()
+            Text("REC %02d:%02d:%02d".format(hh, mm, ss), color = HudAccent, fontSize = 13.sp)
+            Spacer(Modifier.width(12.dp))
+            Text(ui.modelId, color = HudMuted, fontSize = 12.sp)
+        }
+        if (ui.touchLocked) {
+            Box(Modifier.fillMaxSize().clickable(enabled = false) {})
+        }
+        Button(
+            onClick = { runtime.emergencyStop() },
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = HudPanel),
+        ) { Text("紧急停止", color = HudText) }
+    }
+}
+
+@Composable
+fun SettingsScreen(runtime: RparRuntime) {
+    val ui by runtime.ui.collectAsState()
+    Column(Modifier.fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState())) {
+        Text("设置", color = HudAccent, fontSize = 22.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("声音提醒", color = HudText); Spacer(Modifier.weight(1f))
+            Switch(checked = ui.alertsEnabled, onCheckedChange = { runtime.setAlerts(it) })
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("骑行触摸锁", color = HudText); Spacer(Modifier.weight(1f))
+            Switch(checked = ui.touchLocked, onCheckedChange = { runtime.setTouchLock(it) })
+        }
+        Text("界面", color = HudMuted)
+        Row {
+            Chip("骑行 HUD", ui.uiMode == UiMode.RIDING) { runtime.setUiMode(UiMode.RIDING) }
+            Chip("研究", ui.uiMode == UiMode.RESEARCH) { runtime.setUiMode(UiMode.RESEARCH) }
+        }
+        Text("防抖", color = HudMuted)
+        Row {
+            Chip("关", ui.stab == StabilizationMode.OFF) { runtime.setStab(StabilizationMode.OFF) }
+            Chip("标准", ui.stab == StabilizationMode.STANDARD) { runtime.setStab(StabilizationMode.STANDARD) }
+            Chip("预览", ui.stab == StabilizationMode.PREVIEW) { runtime.setStab(StabilizationMode.PREVIEW) }
+        }
+        Text("运行模式", color = HudMuted)
+        Column {
+            Chip("CAPTURE_ONLY", ui.runMode == RunMode.CAPTURE_ONLY) { runtime.setRunMode(RunMode.CAPTURE_ONLY) }
+            Chip("REALTIME", ui.runMode == RunMode.REALTIME_PERCEPTION) { runtime.setRunMode(RunMode.REALTIME_PERCEPTION) }
+            Chip("FULL_LOG", ui.runMode == RunMode.REALTIME_PERCEPTION_FULL_LOG) { runtime.setRunMode(RunMode.REALTIME_PERCEPTION_FULL_LOG) }
+            Chip("SAFE_MODE", ui.runMode == RunMode.SAFE_MODE) { runtime.setRunMode(RunMode.SAFE_MODE) }
+            Chip("REPLAY", ui.runMode == RunMode.REPLAY) { runtime.setRunMode(RunMode.REPLAY) }
+        }
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = { runtime.reloadModel() }) { Text("扫描/加载模型包 (${ui.modelId})") }
+        Button(onClick = { runtime.voice.playTestTone() }) { Text("测试提示音（扬声器/蓝牙）") }
+        Button(onClick = { runtime.navigate(AppScreen.CALIBRATION) }) { Text("标定向导") }
+        Button(onClick = { runtime.navigate(AppScreen.CAPABILITY) }) { Text("能力报告") }
+        Button(onClick = { runtime.navigate(AppScreen.EXPORT) }) { Text("导出会话") }
+        Button(onClick = { runtime.navigate(AppScreen.HUD) }, colors = ButtonDefaults.buttonColors(containerColor = HudAccent)) {
+            Text("返回 HUD", color = HudBg)
+        }
+        Text("隐私：LOCAL_ONLY，无上传路径。麦克风权限非必需。", color = HudMuted, fontSize = 12.sp)
+        ui.cameraDegrade?.let { Text("相机降级：$it", color = HudMuted, fontSize = 12.sp) }
+        ui.lastError?.let { Text("模型：$it", color = HudMuted, fontSize = 12.sp) }
+    }
+}
+
+@Composable
+private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        label,
+        color = if (selected) HudBg else HudText,
+        fontSize = 13.sp,
+        modifier = Modifier
+            .padding(4.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (selected) HudAccent else HudPanel)
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    )
+}
+
+@Composable
+fun CapabilityScreen(json: String, onProbe: () -> String, onShare: () -> Unit, onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
+        Text("能力报告", color = HudAccent, fontSize = 22.sp)
+        Row {
+            Button(onClick = { onProbe() }) { Text("重新探测") }
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = onShare) { Text("分享 JSON") }
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = onBack) { Text("返回") }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(json, color = HudText, fontSize = 11.sp)
+    }
+}
+
+@Composable
+fun ExportScreen(types: List<String>, hours: Double, onExport: () -> Unit, onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(20.dp)) {
+        Text("导出确认 (SEC-003)", color = HudAccent, fontSize = 22.sp)
+        Text("本次导出会包含以下本地数据类型。隐私模式 LOCAL_ONLY，不会上传。", color = HudMuted)
+        Spacer(Modifier.height(8.dp))
+        types.forEach { Text("• $it", color = HudText, fontSize = 14.sp) }
+        Spacer(Modifier.height(12.dp))
+        Text("估计剩余录像约 %.1f 小时（按 25 Mbps）".format(hours), color = HudMuted)
+        Spacer(Modifier.height(16.dp))
+        Button(onClick = onExport) { Text("打包并分享 ZIP") }
+        TextButton(onClick = onBack) { Text("取消") }
+    }
+}

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Road Perception AR</string>
+    <string name="disclaimer_title">安全说明</string>
+    <string name="disclaimer_body">本应用为实验性路感辅助，不能替代骑行者观察，不输出控制指令（不提供转向或制动建议）。请始终以实际路况为准。</string>
+    <string name="status_sound">声音提醒</string>
+    <string name="emergency_stop">紧急停止</string>
+    <string name="notif_channel">采集服务</string>
+    <string name="notif_title">Road Perception AR 正在采集</string>
+</resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="hud_bg">#FF080A0E</color>
+    <color name="hud_accent">#FF28D2C8</color>
+    <color name="hud_text">#FFECF4F8</color>
+    <color name="launcher_bg">#FF080A0E</color>
+</resources>

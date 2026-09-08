@@ -1,0 +1,14 @@
+{
+  "frames": 210,
+  "confirmed": 134,
+  "candidates": 289,
+  "alerts": 0,
+  "id_switches_est": 0,
+  "direction_accuracy": null,
+  "distance_mae_m": null,
+  "first_confirm_distance_m": {},
+  "blur_new_confirmed": 12,
+  "mean_infer_fps": 11.196172249875232,
+  "p95_latency_ms": 83.11302000020078,
+  "overlay_ok": true
+}
