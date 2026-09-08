@@ -24,8 +24,8 @@ class ArGlView(context: Context) : GLSurfaceView(context) {
         renderMode = RENDERMODE_CONTINUOUSLY
     }
 
-    fun setPrimitives(prims: List<RenderPrimitive>, width: Int, height: Int) {
-        renderer.set(prims, width, height)
+    fun setPrimitives(prims: List<RenderPrimitive>, width: Int, height: Int, night: Boolean = false, nightBrightness: Float = 0.72f) {
+        renderer.set(prims, width, height, night, nightBrightness)
     }
 }
 
@@ -33,12 +33,16 @@ class ArRenderer : GLSurfaceView.Renderer {
     @Volatile private var prims: List<RenderPrimitive> = emptyList()
     @Volatile private var w = 1920
     @Volatile private var h = 1080
+    @Volatile private var night = false
+    @Volatile private var nightB = 0.72f
     private var program = 0
     private var aPos = 0
     private var uColor = 0
 
-    fun set(p: List<RenderPrimitive>, width: Int, height: Int) {
+    fun set(p: List<RenderPrimitive>, width: Int, height: Int, nightMode: Boolean = false, brightness: Float = 0.72f) {
         prims = p
+        night = nightMode
+        nightB = brightness
         if (width > 0) w = width
         if (height > 0) h = height
     }
@@ -74,7 +78,8 @@ class ArRenderer : GLSurfaceView.Renderer {
             val ndc = p.polygon.map { (x, y) ->
                 (x / w.toFloat()) * 2f - 1f to (1f - (y / h.toFloat()) * 2f)
             }
-            val col = p.colorRgba
+            val mul = if (night) nightB else 1f
+            val col = floatArrayOf(p.colorRgba[0] * mul, p.colorRgba[1] * mul, p.colorRgba[2] * mul, p.colorRgba[3])
             if (p.polygon.size >= 3 && !p.dashed) {
                 drawFan(ndc, floatArrayOf(col[0], col[1], col[2], col[3] * 0.28f))
             }

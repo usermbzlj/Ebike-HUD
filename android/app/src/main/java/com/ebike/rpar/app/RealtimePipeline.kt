@@ -48,6 +48,8 @@ class RealtimePipeline(
     var runMode: RunMode = RunMode.REALTIME_PERCEPTION
     var thermalC: Double? = null
     var recSeconds: Double = 0.0
+    var nightPalette: Boolean = false
+    var researchHeatmap: Boolean = true
     private val latencies = ArrayDeque<Double>()
     private val inferTimes = ArrayDeque<Long>()
     private var lastInferNs = 0L
@@ -239,6 +241,40 @@ class RealtimePipeline(
                 -2, corridor, floatArrayOf(0.2f, 0.75f, 0.8f, 0.18f),
                 dashed = true, thickness = 2f, label = null, labelPriority = 80, fade = 1f, kind = "corridor",
             )
+        }
+        if (uiMode == UiMode.RESEARCH) {
+            val fw = cfg.model.inputFar[0]; val fh = cfg.model.inputFar[1]
+            val nw = cfg.model.inputNear[0]; val nh = cfg.model.inputNear[1]
+            prims += RenderPrimitive(
+                -3,
+                listOf(346f to 346f, 1574f to 346f, 1574f to 670f, 346f to 670f),
+                floatArrayOf(0.35f, 0.9f, 0.55f, 0.12f),
+                dashed = true, thickness = 1f, label = "far ${fw}x$fh", labelPriority = 90, fade = 0.4f, kind = "roi",
+            )
+            prims += RenderPrimitive(
+                -4,
+                listOf(154f to 540f, 1766f to 540f, 1766f to 1080f, 154f to 1080f),
+                floatArrayOf(0.9f, 0.7f, 0.2f, 0.10f),
+                dashed = true, thickness = 1f, label = "near ${nw}x$nh", labelPriority = 91, fade = 0.4f, kind = "roi",
+            )
+            if (researchHeatmap) {
+                for (t in qmap.tiles) {
+                    if (t.visibility.wire == "clear") continue
+                    val a = 0.16f
+                    val col = when (t.visibility.wire) {
+                        "blur" -> floatArrayOf(0.16f, 0.35f, 0.82f, a)
+                        "glare" -> floatArrayOf(1f, 0.86f, 0.16f, a)
+                        "underexposed" -> floatArrayOf(0.16f, 0.31f, 0.7f, a)
+                        "overexposed" -> floatArrayOf(0.94f, 0.94f, 0.94f, a)
+                        else -> floatArrayOf(0.47f, 0.47f, 0.47f, a)
+                    }
+                    prims += RenderPrimitive(
+                        -10,
+                        listOf(t.x0.toFloat() to t.y0.toFloat(), t.x1.toFloat() to t.y0.toFloat(), t.x1.toFloat() to t.y1.toFloat(), t.x0.toFloat() to t.y1.toFloat()),
+                        col, dashed = false, thickness = 1f, label = null, labelPriority = 95, fade = a, kind = "heatmap",
+                    )
+                }
+            }
         }
         var labeled = 0
         for (obj in objs) {

@@ -130,9 +130,12 @@
         <button id="btnClip">导出片段</button>
         <button id="btnShare">分享包脱敏</button>
         <button id="btnEval">场景评估</button>
+        <button id="btnAnnotate">导出标注/CVAT</button>
+        <button id="btnTrain">训练卡片</button>
       </div>
       <p class="warn" id="repStatus">先录制会话，再回放视频 / IMU / 轨迹 / 提醒。</p>
       <img id="repView" alt="session replay" style="max-width:100%;max-height:360px;background:#05070a"/>
+      <canvas id="imuWave" width="720" height="72" style="width:100%;max-width:720px;background:#05070a;border:1px solid #1d2a33;margin-top:8px"></canvas>
       <pre id="repPre">—</pre>
     </section>
   </main>
@@ -220,7 +223,46 @@
       $("repView").src = "/api/replay/frame.jpg?t=" + Date.now();
       $("repPre").textContent = JSON.stringify({index: st.index, gyro: st.gyro, imu: st.imu_series, tracks: (st.tracks||[]).length, alerts: st.alerts, events: (st.events||[]).length}, null, 2);
       $("repStatus").textContent = "回放 " + st.index + "/" + st.n_frames;
+      drawImu(st.imu_series);
+      lastReplay = st;
       repI = (st.index + repStep) % Math.max(1, st.n_frames);
+    };
+    let lastReplay = {index: 0};
+    function drawImu(series) {
+      const c = $("imuWave"); if (!c) return;
+      const ctx = c.getContext("2d");
+      ctx.fillStyle = "#05070a"; ctx.fillRect(0,0,c.width,c.height);
+      const gy = (series && series.gyro) || [];
+      if (!gy.length) return;
+      ctx.strokeStyle = "#2ed3c6"; ctx.beginPath();
+      gy.forEach((g, i) => {
+        const mag = Math.abs(g.x||0)+Math.abs(g.y||0)+Math.abs(g.z||0);
+        const x = i / Math.max(1, gy.length-1) * (c.width-8) + 4;
+        const y = c.height/2 - mag * 40;
+        if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      });
+      ctx.stroke();
+    }
+    $("repView").onclick = async (ev) => {
+      const img = $("repView");
+      const r = img.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      const x = (ev.clientX - r.left) / r.width * (img.naturalWidth || 1920);
+      const y = (ev.clientY - r.top) / r.height * (img.naturalHeight || 1080);
+      const hit = await fetch("/api/replay/hit?x="+x+"&y="+y+"&i="+(lastReplay.index||0)).then(z => z.json());
+      $("repStatus").textContent = hit.ok ? ("选中 track "+hit.track.track_id+" "+(hit.track.semantic_type||"")) : "未点中对象";
+      if (hit.ok) $("repPre").textContent = JSON.stringify(hit.track, null, 2);
+    };
+    $("btnAnnotate").onclick = async () => {
+      const r = await fetch("/api/annotate", {method:"POST"}).then(x => x.json());
+      $("repPre").textContent = JSON.stringify({n: r.n, cvat: r.cvat, active: r.active?.n_candidates}, null, 2);
+      $("repStatus").textContent = r.ok ? ("标注 "+r.n+" / 主动学习 "+(r.active?.n_candidates||0)) : "标注失败";
+    };
+    $("btnTrain").onclick = async () => {
+      $("repStatus").textContent = "训练卡片生成中…";
+      const r = await fetch("/api/train-synth", {method:"POST"}).then(x => x.json());
+      $("repPre").textContent = JSON.stringify(r, null, 2);
+      $("repStatus").textContent = r.ok ? ("train_acc="+r.train_acc) : "训练失败";
     };
     $("btnSlow").onclick = () => { repStep = 1; $("repStatus").textContent = "步进 0.25×（逐帧）"; };
     $("btn1x").onclick = () => { repStep = 3; $("repStatus").textContent = "步进 1×"; };

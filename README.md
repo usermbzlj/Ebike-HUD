@@ -58,6 +58,10 @@ rpar share <session_dir> --out artifacts/share
 rpar offset-scan <session_dir>
 rpar eval --out artifacts/eval
 rpar annotate <session_dir>
+rpar cvat <session_dir>
+rpar active-learn <session_dir>
+rpar damping-ab session_a session_b
+rpar train-synth
 rpar split session_a session_b session_c
 rpar package-model --id heuristic-cv-0.1.0
 ```

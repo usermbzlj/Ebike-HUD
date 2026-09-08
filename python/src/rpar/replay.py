@@ -140,6 +140,12 @@ class SessionReplay:
             "jpeg": jpeg,
         }
 
+    def hit_test(self, index: int, x: float, y: float) -> dict[str, Any] | None:
+        from rpar.annotation import hit_test_tracks
+
+        st = self.at(index)
+        return hit_test_tracks(st.get("tracks") or [], x, y)
+
 
 def scan_time_offset_ms(session_dir: Path, window_ms: float = 200.0) -> dict[str, Any]:
     """SYNC-006: scan ±200 ms for gyro-energy vs frame blur correlation."""

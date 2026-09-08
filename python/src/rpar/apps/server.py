@@ -12,21 +12,23 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from rpar.annotation import tracks_to_annotation_task
+from rpar.annotation import tracks_to_annotation_task, tracks_to_cvat_xml, apply_revision
 from rpar.capability import desktop_capability_stub, write_capability_report
 from rpar.config import load_config
 from rpar.enums import UiMode
 from rpar.geometry import GeometryEngine
 from rpar.capture import record_simulated_session
 from rpar.golden import run_acceptance_suite, run_oracle_golden, run_simulator_golden
+from rpar.ml.active import write_active_queue
 from rpar.ml.eval import write_eval_bundle
-from rpar.replay import SessionReplay, scan_time_offset_ms
-from rpar.session import verify_session
-from rpar.share import export_share_bundle
+from rpar.ml.synth_train import write_training_bundle
 from rpar.ml.train import write_model_package
 from rpar.overlay import compose
 from rpar.perception import HeuristicPerceptionEngine
 from rpar.pipeline import RealtimePipeline
+from rpar.replay import SessionReplay, scan_time_offset_ms
+from rpar.session import verify_session
+from rpar.share import export_share_bundle
 from rpar.simulator import RoadSimulator, SimConfig
 from rpar.transforms import default_mount
 
@@ -81,7 +83,7 @@ class DemoState:
             self.pipe.reset()
         frame, gt = self.sim.frame_at(self.index)
         view = self.pipe.step(frame, ui_mode=self.ui)
-        vis = compose(frame.bgr, view, self.ui)
+        vis = compose(frame.bgr, view, self.ui, night=self.night)
         ok, buf = cv2.imencode(".jpg", vis, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
         if not ok:
             raise RuntimeError("jpeg encode failed")
@@ -281,9 +283,35 @@ def create_app() -> FastAPI:
             if STATE.replay is None:
                 raise HTTPException(status_code=404, detail="no session recorded")
             src = STATE.replay.root / "perception" / "tracks.jsonl"
+            root = STATE.replay.root
         out = ART / "annotation_task.json"
         task = tracks_to_annotation_task(src, out)
-        return {"ok": True, "path": str(out), "n": len(task.get("items") or [])}
+        xml = tracks_to_cvat_xml(src, ART / "cvat.xml")
+        queue = write_active_queue(root, ART / "active_queue.json")
+        return {"ok": True, "path": str(out), "n": len(task.get("items") or []), "cvat": str(xml), "active": queue}
+
+    @app.get("/api/replay/hit")
+    def replay_hit(x: float = 0, y: float = 0, i: int = 0) -> dict[str, Any]:
+        with STATE.lock:
+            if STATE.replay is None:
+                raise HTTPException(status_code=404, detail="no session recorded")
+            hit = STATE.replay.hit_test(i, x, y)
+        return {"ok": hit is not None, "track": hit}
+
+    @app.post("/api/annotate/revise")
+    def annotate_revise(track_id: int = 0, frame_id: int = 0, semantic_type: str = "") -> dict[str, Any]:
+        path = ART / "annotation_task.json"
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="annotate first")
+        patch = {"semantic_type": semantic_type} if semantic_type else {}
+        apply_revision(path, track_id, frame_id, patch)
+        return {"ok": True}
+
+    @app.post("/api/train-synth")
+    def train_synth() -> dict[str, Any]:
+        ART.mkdir(parents=True, exist_ok=True)
+        bundle = write_training_bundle(ART / "train_synth")
+        return {"ok": True, "train_acc": bundle["model"]["train_acc"], "split": bundle["split"]}
 
     return app
 

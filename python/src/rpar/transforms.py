@@ -177,6 +177,30 @@ def default_intrinsics(width: int = 1920, height: int = 1080, hfov_deg: float = 
     return Intrinsics(fx=fx, fy=fy, cx=width / 2.0, cy=height / 2.0, width=width, height=height)
 
 
+def chessboard_overlay_error_px(
+    mount: MountProfile | None = None,
+    k: Intrinsics | None = None,
+    n: int = 5,
+) -> float:
+    """CAM-009: shared transform chain error on a ground grid (preview/AR/model coords)."""
+    mount = mount or default_mount()
+    k = k or default_intrinsics()
+    errs: list[float] = []
+    for x in np.linspace(-1.6, 1.6, n):
+        for y in np.linspace(5.0, 28.0, n):
+            uv = ground_to_pixel(np.array([x, y]), mount, k)
+            if uv is None:
+                continue
+            xy = pixel_to_ground(uv, mount, k)
+            if xy is None:
+                continue
+            uv2 = ground_to_pixel(xy, mount, k)
+            if uv2 is None:
+                continue
+            errs.append(float(np.linalg.norm(uv - uv2)))
+    return max(errs) if errs else 999.0
+
+
 def default_mount(width: int = 1920, height: int = 1080) -> MountProfile:
     k = default_intrinsics(width, height)
     horizon = float(k.cy) * 0.42

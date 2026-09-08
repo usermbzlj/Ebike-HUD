@@ -49,6 +49,12 @@ def test_roll_rotates_points():
     assert out.shape == pts.shape
 
 
+def test_chessboard_overlay_error_under_8px():
+    from rpar.transforms import chessboard_overlay_error_px
+
+    assert chessboard_overlay_error_px() <= 8.0
+
+
 def test_intrinsics_matrix_shape():
     k = Intrinsics(1000, 1000, 960, 540, 1920, 1080)
     m = k.matrix()

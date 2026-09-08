@@ -118,7 +118,10 @@ fun HudScreen(runtime: RparRuntime, onOpenSettings: () -> Unit) {
             factory = { ArGlView(it) },
             update = { gl ->
                 val v = ui.view
-                if (v != null) gl.setPrimitives(v.primitives, ui.previewSize.width, ui.previewSize.height)
+                if (v != null) gl.setPrimitives(
+                    v.primitives, ui.previewSize.width, ui.previewSize.height,
+                    ui.nightPalette, runtime.cfg.render.nightBrightness.toFloat(),
+                )
             },
             modifier = Modifier.fillMaxSize(),
         )
@@ -167,10 +170,21 @@ fun HudScreen(runtime: RparRuntime, onOpenSettings: () -> Unit) {
             val hh = (rec / 3600).toInt(); val mm = ((rec % 3600) / 60).toInt(); val ss = (rec % 60).toInt()
             Text("REC %02d:%02d:%02d".format(hh, mm, ss), color = HudAccent, fontSize = 13.sp)
             Spacer(Modifier.width(12.dp))
+            Text("%.1fh".format(ui.remainingHours), color = HudMuted, fontSize = 12.sp)
+            Spacer(Modifier.width(12.dp))
             Text(ui.modelId, color = HudMuted, fontSize = 12.sp)
         }
         if (ui.touchLocked) {
             Box(Modifier.fillMaxSize().clickable(enabled = false) {})
+            Text(
+                "触摸已锁定 · 长按解锁",
+                color = HudMuted,
+                fontSize = 12.sp,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 56.dp),
+            )
+        }
+        if (ui.storageLight) {
+            Text("存储不足，无视频轻量记录", color = HudMuted, fontSize = 12.sp, modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
         }
         Button(
             onClick = { runtime.emergencyStop() },
@@ -214,12 +228,30 @@ fun SettingsScreen(runtime: RparRuntime) {
         }
         Spacer(Modifier.height(8.dp))
         Button(onClick = { runtime.reloadModel() }) { Text("扫描/加载模型包 (${ui.modelId})") }
+        Button(onClick = { runtime.rollbackModel() }) { Text("回滚上一可用模型") }
         Button(onClick = { runtime.voice.playTestTone() }) { Text("测试提示音（扬声器/蓝牙）") }
         var tone by remember { mutableStateOf(runtime.voice.toneMode) }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("音调模式（左/正/右）", color = HudText); Spacer(Modifier.weight(1f))
             Switch(checked = tone, onCheckedChange = { tone = it; runtime.setToneMode(it) })
         }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("夜间配色", color = HudText); Spacer(Modifier.weight(1f))
+            Switch(checked = ui.nightPalette, onCheckedChange = { runtime.setNightPalette(it) })
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("研究热图", color = HudText); Spacer(Modifier.weight(1f))
+            Switch(checked = ui.researchHeatmap, onCheckedChange = { runtime.setResearchHeatmap(it) })
+        }
+        Text("减震 A/B（CAL-006）", color = HudMuted)
+        Row {
+            Button(onClick = { runtime.startDampingSample("A") }) { Text("采样 A") }
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = { runtime.startDampingSample("B") }) { Text("采样 B") }
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = { runtime.stopDampingSample() }) { Text("结束采样") }
+        }
+        if (ui.dampingNote.isNotBlank()) Text(ui.dampingNote, color = HudMuted, fontSize = 12.sp)
         Text("相机实验", color = HudMuted)
         var afLock by remember { mutableStateOf(runtime.camera.lockFarFocus) }
         var expCap by remember { mutableStateOf(runtime.camera.exposureCapNs != null) }

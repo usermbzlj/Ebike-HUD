@@ -109,6 +109,22 @@ object Transforms {
     fun compensateLeftHandlebar(xyCamGround: DoubleArray, mount: MountProfile): DoubleArray =
         doubleArrayOf(xyCamGround[0] - mount.lateralOffsetM, xyCamGround[1])
 
+    fun overlayMaxErrorPx(mount: MountProfile, k: Intrinsics, n: Int = 5): Double {
+        var maxErr = 0.0
+        val xs = DoubleArray(n) { i -> -1.6 + 3.2 * i / (n - 1).coerceAtLeast(1) }
+        val ys = DoubleArray(n) { i -> 5.0 + 23.0 * i / (n - 1).coerceAtLeast(1) }
+        for (x in xs) for (y in ys) {
+            val uv = projectVehiclePoint(doubleArrayOf(x, y, 0.0), mount, k) ?: continue
+            val xy = pixelToGround(uv, mount, k) ?: continue
+            val uv2 = projectVehiclePoint(doubleArrayOf(xy[0], xy[1], 0.0), mount, k) ?: continue
+            val dx = uv[0] - uv2[0]
+            val dy = uv[1] - uv2[1]
+            val e = sqrt(dx * dx + dy * dy)
+            if (e > maxErr) maxErr = e
+        }
+        return maxErr
+    }
+
     fun defaultIntrinsics(width: Int = 1920, height: Int = 1080, hfovDeg: Double = 68.0): Intrinsics {
         val fx = (width / 2.0) / tan(deg2rad(hfovDeg) / 2.0)
         return Intrinsics(fx, fx, width / 2.0, height / 2.0, width, height, true)

@@ -19,6 +19,8 @@ def build_report(session_dir: Path) -> dict[str, Any]:
     vis = Counter(t.get("lifecycle_state") for t in tracks)
     fired = [a for a in alerts if a.get("fired")]
     blur = [d.get("blur") for d in diag if d.get("blur") is not None]
+    gyro = list(iter_jsonl(root / "imu" / "gyro.jsonl"))
+    gyro_mags = [abs(float(g.get("x") or 0)) + abs(float(g.get("y") or 0)) + abs(float(g.get("z") or 0)) for g in gyro]
     report = {
         "session": v.get("manifest"),
         "verify_ok": v.get("ok"),
@@ -32,6 +34,9 @@ def build_report(session_dir: Path) -> dict[str, Any]:
         "mean_infer_fps": _mean([d.get("infer_fps") for d in diag]),
         "p95_latency_ms": _p95([d.get("latency_p95_ms") for d in diag]),
         "mean_thermal_c": _mean([d.get("thermal_c") for d in diag]),
+        "mean_battery_pct": _mean([d.get("battery_pct") for d in diag]),
+        "gyro_peak": max(gyro_mags) if gyro_mags else None,
+        "usable_frame_share": (sum(1 for b in blur if (b or 0) < 0.5) / len(blur)) if blur else None,
         "camera_interval": v.get("camera_interval"),
         "visibility": dict(Counter(t.get("visibility_confidence") is not None for t in tracks)),
     }

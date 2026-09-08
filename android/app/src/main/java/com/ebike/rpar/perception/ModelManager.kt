@@ -40,6 +40,19 @@ class ModelManager(private val context: Context, private val cfg: RparConfig) {
         }
     }
 
+    fun lastGoodId(): String = prefs().getString(KEY_LAST_GOOD, cfg.model.packageId) ?: cfg.model.packageId
+
+    fun rollback(): Loaded {
+        val id = lastGoodId()
+        return try {
+            val rb = resolvePackageDir(id)
+            val engine = loadFromDir(rb)
+            Loaded(engine, id, rb, true, "explicit_rollback")
+        } catch (t: Throwable) {
+            Loaded(HeuristicEngine(cfg), cfg.model.packageId, null, true, t.message)
+        }
+    }
+
     fun scanSideload(): List<File> {
         val root = File(context.filesDir, "models")
         if (!root.exists()) return emptyList()

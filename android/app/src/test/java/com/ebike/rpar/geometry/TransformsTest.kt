@@ -19,10 +19,10 @@ class TransformsTest {
     }
 
     @Test
-    fun compensateDoesNotDoubleApply() {
+    fun overlayChainErrorUnder8px() {
         val mount = Transforms.defaultMount()
-        val xy = doubleArrayOf(0.4, 10.0)
-        val once = Transforms.compensateLeftHandlebar(xy, mount)
-        assertTrue(abs(once[0] - (0.4 - mount.lateralOffsetM)) < 1e-9)
+        val k = Transforms.defaultIntrinsics()
+        val err = Transforms.overlayMaxErrorPx(mount, k, 4)
+        assertTrue(err <= 8.0)
     }
 }

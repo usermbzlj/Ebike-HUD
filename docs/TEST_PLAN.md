@@ -11,6 +11,7 @@
 - Oracle 几何：方向 ≥95%、5–15 m MAE ≤2.5 m
 - 会话录制 + 回放 + SYNC-006 偏移扫描 + SHARE_REDACTED 导出
 - Hard-negative 切片不产生语音提醒；模型包含 SHA-256 与占位 tflite
+- CAM-009 变换链叠加误差 ≤8 px；CVAT 导出；主动学习队列；减震 A/B 统计；双尺度线性训练卡片
 
 黄金回归命令：
 

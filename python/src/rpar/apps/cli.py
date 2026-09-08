@@ -6,12 +6,15 @@ import argparse
 import json
 from pathlib import Path
 
-from rpar.annotation import tracks_to_annotation_task
+from rpar.annotation import tracks_to_annotation_task, tracks_to_cvat_xml
 from rpar.capability import write_capability_report
 from rpar.capture import record_simulated_session
 from rpar.config import load_config
 from rpar.golden import run_acceptance_suite, run_oracle_golden, run_simulator_golden, run_video_file
 from rpar.ml.eval import write_eval_bundle
+from rpar.ab_compare import write_damping_ab
+from rpar.ml.active import write_active_queue
+from rpar.ml.synth_train import write_training_bundle
 from rpar.ml.train import split_sessions, write_model_package, write_run_card
 from rpar.report import write_report
 from rpar.replay import SessionReplay, scan_time_offset_ms
@@ -83,6 +86,22 @@ def main(argv: list[str] | None = None) -> int:
     cl.add_argument("--start", type=int, default=0)
     cl.add_argument("--end", type=int, default=30)
     cl.add_argument("--out", default="artifacts/clip.mp4")
+
+    cv = sub.add_parser("cvat", help="tracks.jsonl → CVAT 1.1 XML")
+    cv.add_argument("session")
+    cv.add_argument("--out", default="artifacts/cvat.xml")
+
+    al = sub.add_parser("active-learn", help="uncertain/alert/unknown annotation queue")
+    al.add_argument("session")
+    al.add_argument("--out", default="artifacts/active_queue.json")
+
+    ab = sub.add_parser("damping-ab", help="CAL-006 compare two sessions")
+    ab.add_argument("session_a")
+    ab.add_argument("session_b")
+    ab.add_argument("--out", default="artifacts/damping_ab.json")
+
+    tr = sub.add_parser("train-synth", help="session-isolated linear trainer + precision cards")
+    tr.add_argument("--out", default="artifacts/train_synth")
 
     args = p.parse_args(argv)
     if args.cmd == "serve":
@@ -156,6 +175,19 @@ def main(argv: list[str] | None = None) -> int:
         path = rep.export_clip(Path(args.out), args.start, args.end)
         rep.close()
         print(path)
+        return 0
+    if args.cmd == "cvat":
+        src = Path(args.session) / "perception" / "tracks.jsonl"
+        print(tracks_to_cvat_xml(src, Path(args.out)))
+        return 0
+    if args.cmd == "active-learn":
+        print(json.dumps(write_active_queue(Path(args.session), Path(args.out)), indent=2))
+        return 0
+    if args.cmd == "damping-ab":
+        print(json.dumps(write_damping_ab(Path(args.session_a), Path(args.session_b), Path(args.out)), indent=2))
+        return 0
+    if args.cmd == "train-synth":
+        print(json.dumps(write_training_bundle(Path(args.out)), indent=2)[:2000])
         return 0
     return 1
 

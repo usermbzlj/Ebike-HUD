@@ -50,8 +50,10 @@ def draw_label(img: np.ndarray, prim: RenderPrimitive) -> None:
     cv2.putText(img, prim.label, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (236, 244, 248), 1, cv2.LINE_AA)
 
 
-def compose(bgr: np.ndarray, view: PerceptionView, ui_mode: UiMode = UiMode.RIDING) -> np.ndarray:
+def compose(bgr: np.ndarray, view: PerceptionView, ui_mode: UiMode = UiMode.RIDING, night: bool = False) -> np.ndarray:
     img = bgr.copy()
+    if night:
+        img = np.clip(img.astype(np.float32) * 0.72, 0, 255).astype(np.uint8)
     prims = sorted(view.primitives, key=lambda p: p.label_priority, reverse=True)
     for p in prims:
         draw_poly(img, p)

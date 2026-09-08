@@ -61,6 +61,11 @@ data class UiState(
     val disclaimerAccepted: Boolean = false,
     val exportTypes: List<String> = SessionWriter.EXPORT_TYPES,
     val lastError: String? = null,
+    val storageLight: Boolean = false,
+    val nightPalette: Boolean = false,
+    val researchHeatmap: Boolean = true,
+    val dampingArm: String? = null,
+    val dampingNote: String = "",
 )
 
 class RparRuntime(private val app: android.app.Application) {
@@ -84,6 +89,8 @@ class RparRuntime(private val app: android.app.Application) {
     lateinit var pipeline: RealtimePipeline
         private set
     private var recStartElapsed = 0L
+    private var dampingBlur = ArrayList<Double>()
+    private var dampingGyro = ArrayList<Double>()
     @Volatile var latestBitmap: android.graphics.Bitmap? = null
     val privacy: PrivacyMode = PrivacyMode.LOCAL_ONLY
 
@@ -123,6 +130,7 @@ class RparRuntime(private val app: android.app.Application) {
             firstRunDone = first,
             disclaimerAccepted = disc,
             usingTestPattern = mode == RunMode.SAFE_MODE || mode == RunMode.REPLAY,
+            touchLocked = screen == AppScreen.HUD && uiMode == UiMode.RIDING,
         )
     }
 
@@ -134,16 +142,22 @@ class RparRuntime(private val app: android.app.Application) {
 
     fun completeFirstRun() {
         prefs.edit().putBoolean("first_run", true).apply()
-        _ui.value = _ui.value.copy(firstRunDone = true, screen = AppScreen.HUD)
+        _ui.value = _ui.value.copy(
+            firstRunDone = true,
+            screen = AppScreen.HUD,
+            touchLocked = _ui.value.uiMode == UiMode.RIDING,
+        )
     }
 
     fun navigate(screen: AppScreen) {
-        _ui.value = _ui.value.copy(screen = screen)
+        val lock = screen == AppScreen.HUD && _ui.value.uiMode == UiMode.RIDING
+        _ui.value = _ui.value.copy(screen = screen, touchLocked = if (lock) true else _ui.value.touchLocked)
     }
 
     fun setUiMode(mode: UiMode) {
         prefs.edit().putString("ui_mode", mode.wire).apply()
-        _ui.value = _ui.value.copy(uiMode = mode)
+        val lock = mode == UiMode.RIDING && _ui.value.screen == AppScreen.HUD
+        _ui.value = _ui.value.copy(uiMode = mode, touchLocked = lock)
     }
 
     fun setRunMode(mode: RunMode) {
@@ -187,12 +201,16 @@ class RparRuntime(private val app: android.app.Application) {
         val useCam = preferCamera &&
             _ui.value.runMode != RunMode.REPLAY &&
             _ui.value.runMode != RunMode.SAFE_MODE
+        val hours = remainingHoursNow()
+        val light = hours < 0.10
         sessionStart = SystemClock.elapsedRealtimeNanos()
         recStartElapsed = SystemClock.elapsedRealtime()
         val mount = calibration.loadActive(cfg.camera.width, cfg.camera.height)
         pipeline.geometry.setMount(mount, Transforms.defaultIntrinsics(cfg.camera.width, cfg.camera.height))
         pipeline.reset()
         pipeline.runMode = _ui.value.runMode
+        pipeline.nightPalette = _ui.value.nightPalette
+        pipeline.researchHeatmap = _ui.value.researchHeatmap
         val id = SessionWriter.newSessionId(Build.MODEL)
         val root = File(app.filesDir, "sessions/session_$id")
         val capFile = File(app.filesDir, "capability/capability_report.json")
@@ -209,12 +227,15 @@ class RparRuntime(private val app: android.app.Application) {
         )
         sensors.start()
         if (useCam) {
-            val recDir = if (_ui.value.runMode != RunMode.SAFE_MODE) File(root, "video") else null
+            val recDir = if (_ui.value.runMode != RunMode.SAFE_MODE && !light) File(root, "video") else null
             camera.stabMode = _ui.value.stab
             camera.open(surface, recDir, enableRecord = recDir != null)
             _ui.value = _ui.value.copy(
                 usingTestPattern = false,
                 cameraDegrade = camera.lastDegrade,
+                remainingHours = hours,
+                storageLight = light,
+                touchLocked = _ui.value.uiMode == UiMode.RIDING,
             )
             if (!camera.running.get()) {
                 diagnostics.event("CAM", "fallback_test_pattern", camera.lastDegrade ?: "open_failed")
@@ -223,7 +244,7 @@ class RparRuntime(private val app: android.app.Application) {
             }
         } else {
             testPattern.start(scope)
-            _ui.value = _ui.value.copy(usingTestPattern = true)
+            _ui.value = _ui.value.copy(usingTestPattern = true, remainingHours = hours, storageLight = light)
         }
         val svc = Intent(app, CaptureService::class.java)
         if (Build.VERSION.SDK_INT >= 26) app.startForegroundService(svc) else app.startService(svc)
@@ -246,6 +267,49 @@ class RparRuntime(private val app: android.app.Application) {
         pipeline.engine = loaded.engine
         pipeline.modelVersion = loaded.packageId
         _ui.value = _ui.value.copy(modelId = loaded.packageId, lastError = loaded.error)
+    }
+
+    fun rollbackModel() {
+        val loaded = models.rollback()
+        pipeline.engine = loaded.engine
+        pipeline.modelVersion = loaded.packageId
+        _ui.value = _ui.value.copy(modelId = loaded.packageId, lastError = loaded.error ?: "rolled_back")
+    }
+
+    fun setNightPalette(on: Boolean) {
+        pipeline.nightPalette = on
+        _ui.value = _ui.value.copy(nightPalette = on)
+    }
+
+    fun setResearchHeatmap(on: Boolean) {
+        pipeline.researchHeatmap = on
+        _ui.value = _ui.value.copy(researchHeatmap = on)
+    }
+
+    fun startDampingSample(arm: String) {
+        dampingBlur.clear()
+        dampingGyro.clear()
+        _ui.value = _ui.value.copy(dampingArm = arm, dampingNote = "采样 $arm")
+    }
+
+    fun stopDampingSample(): String {
+        val arm = _ui.value.dampingArm ?: "A"
+        val blurShare = if (dampingBlur.isEmpty()) 0.0 else dampingBlur.count { it > 0.5 } / dampingBlur.size.toDouble()
+        val gyroPeak = dampingGyro.maxOrNull() ?: 0.0
+        val o = JSONObject()
+            .put("arm", arm)
+            .put("n", dampingBlur.size)
+            .put("blur_share", blurShare)
+            .put("gyro_peak", gyroPeak)
+            .put("method", "auto_stats")
+        File(app.filesDir, "damping_ab_$arm.json").writeText(o.toString(2))
+        _ui.value = _ui.value.copy(dampingArm = null, dampingNote = "$arm blur_share=${"%.2f".format(blurShare)} gyro_peak=${"%.2f".format(gyroPeak)}")
+        return o.toString()
+    }
+
+    private fun remainingHoursNow(): Double {
+        val stat = android.os.StatFs(app.filesDir.absolutePath)
+        return SessionWriter.estimateHoursRemaining(stat.availableBytes, cfg.camera.bitrateMbps)
     }
 
     fun runCapability(): String {
@@ -314,6 +378,11 @@ class RparRuntime(private val app: android.app.Application) {
                 pipeline.recSeconds = (SystemClock.elapsedRealtime() - recStartElapsed) / 1000.0
                 val view = pipeline.step(frame, _ui.value.uiMode)
                 view.alerts.filter { it.fired }.forEach { voice.speak(it.phrase) }
+                if (_ui.value.dampingArm != null) {
+                    dampingBlur += view.blur
+                    val g = sensors.gyro.peekLast()
+                    if (g != null) dampingGyro += kotlin.math.abs(g.x) + kotlin.math.abs(g.y) + kotlin.math.abs(g.z)
+                }
                 val w = writer
                 if (w != null) {
                     if (w.lowStorage()) {

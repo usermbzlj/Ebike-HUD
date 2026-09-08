@@ -291,6 +291,35 @@ class RealtimePipeline:
                     kind="corridor",
                 )
             )
+        if ui_mode == UiMode.RESEARCH:
+            fw, fh = self.cfg.model.input_far
+            nw, nh = self.cfg.model.input_near
+            prims.append(
+                RenderPrimitive(
+                    track_id=-3,
+                    polygon=[(346, 346), (1574, 346), (1574, 670), (346, 670)],
+                    color_rgba=(0.35, 0.9, 0.55, 0.12),
+                    dashed=True,
+                    thickness=1.0,
+                    label=f"far {fw}x{fh}",
+                    label_priority=90,
+                    fade=0.4,
+                    kind="roi",
+                )
+            )
+            prims.append(
+                RenderPrimitive(
+                    track_id=-4,
+                    polygon=[(154, 540), (1766, 540), (1766, 1080), (154, 1080)],
+                    color_rgba=(0.9, 0.7, 0.2, 0.1),
+                    dashed=True,
+                    thickness=1.0,
+                    label=f"near {nw}x{nh}",
+                    label_priority=91,
+                    fade=0.4,
+                    kind="roi",
+                )
+            )
         labeled = 0
         for obj in objs:
             if obj.lifecycle_state in {LifecycleState.EXPIRED}:
