@@ -51,6 +51,10 @@ render:
   confirmed_alpha: 0.85
   overlay_error_px: 8.0
   night_brightness: 0.72
+  stroke_scale: 1.0
+  font_scale: 1.0
+  overlay_alpha: 1.0
+  show_info_layer: true
 camera:
   width: 1920
   height: 1080

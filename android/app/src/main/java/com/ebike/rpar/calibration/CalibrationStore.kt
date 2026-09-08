@@ -81,6 +81,8 @@ class CalibrationStore(private val context: Context) {
             landscape = true,
             lateralOffsetM = -0.32,
             valid = true,
+            headlightMean = null,
+            headlightValid = false,
         )
         val markers = ArrayList<Pair<Double, Double>>()
         known5?.let { markers += 5.0 to it }

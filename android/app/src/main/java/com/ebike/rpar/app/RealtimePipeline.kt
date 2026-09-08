@@ -14,9 +14,11 @@ import com.ebike.rpar.model.PerceptionView
 import com.ebike.rpar.model.RenderPrimitive
 import com.ebike.rpar.model.RunMode
 import com.ebike.rpar.model.SCHEMA_VERSION
+import com.ebike.rpar.model.SemanticType
 import com.ebike.rpar.model.SynchronizedFrame
 import com.ebike.rpar.model.TrackedRoadObject
 import com.ebike.rpar.model.UiMode
+import com.ebike.rpar.model.estimateImpactScore
 import com.ebike.rpar.perception.DualScaleRoi
 import com.ebike.rpar.perception.HeuristicEngine
 import com.ebike.rpar.perception.NoOpEngine
@@ -56,12 +58,18 @@ class RealtimePipeline(
     var recSeconds: Double = 0.0
     var nightPalette: Boolean = false
     var researchHeatmap: Boolean = true
+    var strokeScale: Float = cfg.render.strokeScale
+    var fontScale: Float = cfg.render.fontScale
+    var overlayAlpha: Float = cfg.render.overlayAlpha
+    var showInfoLayer: Boolean = cfg.render.showInfoLayer
     private val latencies = ArrayDeque<Double>()
     private val inferTimes = ArrayDeque<Long>()
     private var lastInferNs = 0L
     private var inferPeriodNs = (1e9 / maxOf(cfg.runtime.inferFps, 1.0)).toLong()
     private val baseInferPeriodNs = inferPeriodNs
     private var lastStatus: PerceptionStatus = PerceptionStatus.NORMAL
+    private var lastInputFar: IntArray = cfg.model.inputFar
+    private var lastInputNear: IntArray = cfg.model.inputNear
 
     private fun applyThermal() {
         val prev = thermalReason
@@ -123,7 +131,8 @@ class RealtimePipeline(
             frame.bitmap != null -> GrayImage.fromBitmap(frame.bitmap, 480)
             else -> GrayImage(64, 36, IntArray(64 * 36) { 80 })
         }
-        val qmap = evaluateFrame(gray, frame.meta.width, frame.meta.height, cfg.quality)
+        val hl = geometry.mount.let { if (it.headlightValid) it.headlightMean else null }
+        val qmap = evaluateFrame(gray, frame.meta.width, frame.meta.height, cfg.quality, hl)
         scheduler.push(frame, qmap)
         val sel = scheduler.select(t0)
         if (sel.q.globalQuality.usable) badStreakS = 0.0 else badStreakS += dt
@@ -160,6 +169,10 @@ class RealtimePipeline(
             backend = result.backend
             inferMs = result.latencyMs
             dual = result.dualScale && !skipFarRoi
+            if (result.inputSizes.isNotEmpty()) {
+                lastInputFar = result.inputSizes.first()
+                lastInputNear = result.inputSizes.last()
+            }
             lastInferNs = t0
             inferCount++
             inferTimes.addLast(t0)
@@ -199,6 +212,8 @@ class RealtimePipeline(
             val sevTable = mapOf(0 to 0.05, 1 to 0.3, 2 to 0.7, 3 to 1.0, -1 to 0.22)
             val risk = eff * (sevTable[tr.severity.code] ?: 0.22) * relevance
             val showDist = dvalid && geometry.valid
+            val depthConf = if (dvalid) dconf else 0.0
+            val impact = estimateImpactScore(frame.linearAccel, speed, if (showDist) dist else null)
             val obj = TrackedRoadObject(
                 schemaVersion = SCHEMA_VERSION,
                 trackId = tr.trackId,
@@ -229,6 +244,8 @@ class RealtimePipeline(
                 modelVersion = modelVersion,
                 visualStyle = if (tr.state == LifecycleState.CANDIDATE) "dashed" else "solid",
                 roadXyM = tr.roadXy?.let { it[0] to it[1] },
+                depthConfidence = depthConf,
+                impactScore = impact,
             )
             val decision = alerts.evaluate(obj, status, t0, geometry.valid)
             obj.alertScore = decision.alertScore
@@ -246,6 +263,7 @@ class RealtimePipeline(
         latencies.addLast(e2e)
         while (latencies.size > 120) latencies.removeFirst()
         val p95 = percentile(latencies, 95.0)
+        val p50 = percentile(latencies, 50.0)
         val primitives = primitives(trackedObjs, uiMode, sel.q, frame.meta.width, frame.meta.height, frame.angularVelocity?.getOrNull(2) ?: 0.0, p95)
         var inferFps = 0.0
         if (inferTimes.size >= 2) {
@@ -272,6 +290,10 @@ class RealtimePipeline(
             glare = sel.q.globalQuality.glare,
             recSeconds = recSeconds,
             dualScale = dual,
+            latencyP50Ms = p50,
+            droppedInfer = droppedInfer,
+            inputFar = lastInputFar,
+            inputNear = lastInputNear,
         )
         lastView = view
         return view
@@ -337,24 +359,31 @@ class RealtimePipeline(
             }
         }
         var labeled = 0
+        val stroke = strokeScale
+        val overlayA = overlayAlpha.coerceIn(0.15f, 1f)
         for (obj in objs) {
             if (obj.lifecycleState == LifecycleState.EXPIRED) continue
-            val fade = when (obj.lifecycleState) {
+            val info = obj.semanticType in EnumCopy.INFO_LAYER
+            if (info && !showInfoLayer) continue
+            val fade0 = when (obj.lifecycleState) {
                 LifecycleState.PASSED -> 0.35f
                 LifecycleState.CANDIDATE -> cfg.render.candidateAlpha
                 else -> cfg.render.confirmedAlpha
             }
-            val high = obj.lifecycleState in setOf(LifecycleState.CONFIRMED, LifecycleState.ALERTED) && obj.riskScore > 0.4
-            var color = when (obj.geometryType.wire) {
-                "concave" -> floatArrayOf(0.15f, 0.82f, 0.78f, fade)
-                "rough" -> floatArrayOf(0.95f, 0.78f, 0.25f, fade)
+            val fade = (fade0 * overlayA).coerceIn(0.05f, 1f)
+            val high = !info && obj.lifecycleState in setOf(LifecycleState.CONFIRMED, LifecycleState.ALERTED) && obj.riskScore > 0.4
+            var color = when {
+                info && obj.semanticType == SemanticType.PUDDLE -> floatArrayOf(0.35f, 0.55f, 0.88f, fade)
+                info -> floatArrayOf(0.72f, 0.66f, 0.42f, fade)
+                obj.geometryType.wire == "concave" -> floatArrayOf(0.15f, 0.82f, 0.78f, fade)
+                obj.geometryType.wire == "rough" -> floatArrayOf(0.95f, 0.78f, 0.25f, fade)
                 else -> floatArrayOf(0.55f, 0.85f, 0.95f, fade)
             }
             if (high) color = floatArrayOf(color[0], color[1], color[2], minOf(1f, fade + 0.1f))
             val dashed = obj.lifecycleState == LifecycleState.CANDIDATE || obj.lifecycleState == LifecycleState.TRACKED
             var label: String? = null
             val allow = uiMode == UiMode.RESEARCH || labeled < cfg.render.ridingMaxLabels
-            if (allow && obj.lifecycleState != LifecycleState.CANDIDATE) {
+            if (allow && obj.lifecycleState != LifecycleState.CANDIDATE && !(info && uiMode == UiMode.RIDING)) {
                 val distTxt = geometry.displayDistance(obj.distanceM, obj.distanceValid, obj.distanceConfidence)
                 label = if (uiMode == UiMode.RIDING) {
                     val dirCn = EnumCopy.DIRECTION_TTS[obj.direction] ?: ""
@@ -367,11 +396,11 @@ class RealtimePipeline(
             }
             prims += RenderPrimitive(
                 obj.trackId, displayCompensate(obj.polygon, yawRate, latencyMs, frameW), color, dashed,
-                thickness = if (high) 3.2f else 2f,
+                thickness = (if (high) 3.2f else 2f) * stroke,
                 label = label,
                 labelPriority = obj.labelRank ?: 50,
                 fade = fade,
-                kind = "anomaly",
+                kind = if (info) "info" else "anomaly",
             )
         }
         return prims

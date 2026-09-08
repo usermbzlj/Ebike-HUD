@@ -65,6 +65,10 @@ data class RenderConfig(
     val confirmedAlpha: Float = 0.85f,
     val overlayErrorPx: Double = 8.0,
     val nightBrightness: Double = 0.72,
+    val strokeScale: Float = 1f,
+    val fontScale: Float = 1f,
+    val overlayAlpha: Float = 1f,
+    val showInfoLayer: Boolean = true,
 )
 
 data class CameraConfig(
@@ -161,7 +165,13 @@ data class RparConfig(
             .put("ar_target_fps", render.arTargetFps)
             .put("ar_min_fps", render.arMinFps)
             .put("candidate_alpha", render.candidateAlpha)
-            .put("confirmed_alpha", render.confirmedAlpha))
+            .put("confirmed_alpha", render.confirmedAlpha)
+            .put("overlay_error_px", render.overlayErrorPx)
+            .put("night_brightness", render.nightBrightness)
+            .put("stroke_scale", render.strokeScale)
+            .put("font_scale", render.fontScale)
+            .put("overlay_alpha", render.overlayAlpha)
+            .put("show_info_layer", render.showInfoLayer))
         .put("camera", JSONObject()
             .put("width", camera.width)
             .put("height", camera.height)
@@ -260,6 +270,10 @@ data class RparConfig(
                     confirmedAlpha = r.optDouble("confirmed_alpha", 0.85).toFloat(),
                     overlayErrorPx = r.optDouble("overlay_error_px", 8.0),
                     nightBrightness = r.optDouble("night_brightness", 0.72),
+                    strokeScale = r.optDouble("stroke_scale", 1.0).toFloat(),
+                    fontScale = r.optDouble("font_scale", 1.0).toFloat(),
+                    overlayAlpha = r.optDouble("overlay_alpha", 1.0).toFloat(),
+                    showInfoLayer = r.optBoolean("show_info_layer", true),
                 ),
                 camera = CameraConfig(
                     width = c.optInt("width", 1920),

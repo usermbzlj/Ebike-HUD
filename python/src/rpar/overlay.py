@@ -92,13 +92,15 @@ def _hud(img: np.ndarray, view: PerceptionView, ui_mode: UiMode) -> None:
     cv2.rectangle(img, (24, 20), (210, 64), (40, 210, 200), 1)
     cv2.putText(img, speed, (36, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (236, 244, 248), 2, cv2.LINE_AA)
     if ui_mode == UiMode.RESEARCH:
+        far = view.input_far
+        near = view.input_near
         lines = [
             f"FPS {view.ar_fps:.0f} / AI {view.infer_fps:.0f}",
-            f"Latency p95 {view.latency_p95_ms:.0f}ms",
-            f"Blur {view.blur:.2f} Glare {view.glare:.2f}",
-            f"Backend {view.backend.value}  {view.model_version}",
+            f"p50 {view.latency_p50_ms:.0f}  p95 {view.latency_p95_ms:.0f}ms",
+            f"q={view.queue_depth} drop={view.dropped_infer} dual={int(view.dual_scale)}",
+            f"{view.backend.value} {view.model_version} {far[0]}x{far[1]}/{near[0]}x{near[1]}",
         ]
-        cv2.rectangle(img, (24, 78), (430, 186), (8, 10, 14), -1)
+        cv2.rectangle(img, (24, 78), (520, 186), (8, 10, 14), -1)
         for i, line in enumerate(lines):
             cv2.putText(img, line, (36, 106 + i * 22), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 214, 220), 1, cv2.LINE_AA)
     bar = img[h - 54 : h, 0:w].copy()

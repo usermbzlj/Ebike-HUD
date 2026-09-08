@@ -11,6 +11,7 @@ from rpar.config import RparConfig
 from rpar.enums import (
     Direction,
     InferenceBackend,
+    INFO_LAYER_SEMANTICS,
     LifecycleState,
     PerceptionStatus,
     RIDING_STATUS_COPY,
@@ -18,6 +19,7 @@ from rpar.enums import (
     VisibilityClass,
 )
 from rpar.geometry import GeometryEngine, should_mark_passed
+from rpar.impact import estimate_impact_score
 from rpar.models import (
     AlertDecision,
     FrameQualityMap,
@@ -96,6 +98,7 @@ class RealtimePipeline:
         self._last_infer_ns = 0
         self._infer_period_ns = int(1e9 / max(cfg.runtime.infer_fps, 1.0))
         self._base_infer_period_ns = self._infer_period_ns
+        self._last_input_sizes: list[tuple[int, int]] = [cfg.model.input_far, cfg.model.input_near]
 
     def reset(self) -> None:
         self.tracker.reset()
@@ -162,7 +165,11 @@ class RealtimePipeline:
         self.frame_count += 1
         self._apply_thermal()
 
-        qmap = evaluate_frame(frame.bgr, self.cfg.quality)
+        qmap = evaluate_frame(
+            frame.bgr,
+            self.cfg.quality,
+            headlight_mean=self.geometry.mount.headlight_mean if self.geometry.mount.headlight_valid else None,
+        )
         self.scheduler.push(frame, qmap)
         sel_frame, sel_q, fresh, age_ms = self.scheduler.select(t0)
         if sel_q.global_quality.usable:
@@ -193,6 +200,7 @@ class RealtimePipeline:
             backend = result.backend
             infer_ms = result.latency_ms
             dual = result.dual_scale and not self.skip_far_roi
+            self._last_input_sizes = list(result.input_sizes) or self._last_input_sizes
             self._last_infer_ns = t0
             self.infer_count += 1
             self._infer_times.append(t0)
@@ -236,6 +244,12 @@ class RealtimePipeline:
                 direction = direction if direction != Direction.UNKNOWN else Direction.CENTER_FRONT
             sev_table = {0: 0.05, 1: 0.3, 2: 0.7, 3: 1.0, -1: 0.22}
             risk = eff * sev_table.get(int(tr.severity), 0.22) * relevance
+            depth_conf = float(dconf) if dvalid else 0.0
+            impact = estimate_impact_score(
+                frame.linear_accel,
+                speed,
+                dist if dvalid else None,
+            )
             obj = TrackedRoadObject(
                 schema_version=SCHEMA_VERSION,
                 track_id=tr.track_id,
@@ -266,6 +280,8 @@ class RealtimePipeline:
                 model_version=self.model_version,
                 visual_style="dashed" if tr.state == LifecycleState.CANDIDATE else "solid",
                 road_xy_m=tuple(tr.road_xy.tolist()) if tr.road_xy is not None else None,
+                depth_confidence=depth_conf,
+                impact_score=impact,
             )
             decision = self.alerts.evaluate(obj, self.status, t0, self.geometry.valid)
             obj.alert_score = decision.alert_score
@@ -287,6 +303,7 @@ class RealtimePipeline:
         e2e_ms = (age_ms if do_infer else 0.0) + infer_ms
         self._latencies.append(e2e_ms)
         p95 = float(np.percentile(self._latencies, 95)) if self._latencies else e2e_ms
+        p50 = float(np.percentile(self._latencies, 50)) if self._latencies else e2e_ms
         primitives = self._primitives(
             tracked_objs,
             ui_mode,
@@ -322,6 +339,10 @@ class RealtimePipeline:
             glare=sel_q.global_quality.glare,
             rec_seconds=self.frame_count / 60.0,
             dual_scale=dual,
+            latency_p50_ms=p50,
+            dropped_infer=self.dropped_infer,
+            input_far=self._last_input_sizes[0] if self._last_input_sizes else self.cfg.model.input_far,
+            input_near=self._last_input_sizes[-1] if self._last_input_sizes else self.cfg.model.input_near,
         )
         self.last_view = view
         return view
@@ -430,8 +451,14 @@ class RealtimePipeline:
                         )
                     )
         labeled = 0
+        stroke = float(self.cfg.render.stroke_scale)
+        overlay_a = float(np.clip(self.cfg.render.overlay_alpha, 0.15, 1.0))
+        show_info = bool(self.cfg.render.show_info_layer)
         for obj in objs:
             if obj.lifecycle_state in {LifecycleState.EXPIRED}:
+                continue
+            info = obj.semantic_type in INFO_LAYER_SEMANTICS
+            if info and not show_info:
                 continue
             if obj.lifecycle_state == LifecycleState.PASSED:
                 fade = 0.35
@@ -439,8 +466,17 @@ class RealtimePipeline:
                 fade = self.cfg.render.candidate_alpha
             else:
                 fade = self.cfg.render.confirmed_alpha
-            high = obj.lifecycle_state in {LifecycleState.CONFIRMED, LifecycleState.ALERTED} and obj.risk_score > 0.4
-            if obj.geometry_type.value == "concave":
+            fade = float(np.clip(fade * overlay_a, 0.05, 1.0))
+            high = (
+                (not info)
+                and obj.lifecycle_state in {LifecycleState.CONFIRMED, LifecycleState.ALERTED}
+                and obj.risk_score > 0.4
+            )
+            if info and obj.semantic_type.value == "puddle":
+                color = (0.35, 0.55, 0.88, fade)
+            elif info:
+                color = (0.72, 0.66, 0.42, fade)
+            elif obj.geometry_type.value == "concave":
                 color = (0.15, 0.82, 0.78, fade)
             elif obj.geometry_type.value == "rough":
                 color = (0.95, 0.78, 0.25, fade)
@@ -451,7 +487,7 @@ class RealtimePipeline:
             dashed = obj.lifecycle_state in {LifecycleState.CANDIDATE, LifecycleState.TRACKED}
             label = None
             allow_label = ui_mode == UiMode.RESEARCH or labeled < self.cfg.render.riding_max_labels
-            if allow_label and obj.lifecycle_state != LifecycleState.CANDIDATE:
+            if allow_label and obj.lifecycle_state != LifecycleState.CANDIDATE and not (info and ui_mode == UiMode.RIDING):
                 dist_txt = self.geometry.display_distance(obj.distance_m, obj.distance_valid, obj.distance_confidence)
                 if ui_mode == UiMode.RIDING:
                     dir_cn = {
@@ -474,11 +510,11 @@ class RealtimePipeline:
                     polygon=_display_compensate(obj.polygon, yaw_rate, latency_ms, frame_w),
                     color_rgba=color,
                     dashed=dashed,
-                    thickness=3.2 if high else 2.0,
+                    thickness=(3.2 if high else 2.0) * stroke,
                     label=label,
                     label_priority=obj.label_rank or 50,
                     fade=fade,
-                    kind="anomaly",
+                    kind="info" if info else "anomaly",
                 )
             )
         return prims

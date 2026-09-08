@@ -30,7 +30,29 @@ def _motion_blur_score(gray: np.ndarray) -> float:
     return float(np.clip(0.55 * blur + 0.45 * np.clip(anisotropy * 1.8, 0, 1) * (1.0 - np.clip(spread / 2.0, 0, 1)), 0, 1))
 
 
-def _glare_score(bgr: np.ndarray) -> float:
+def headlight_cone_mask(h: int, w: int) -> np.ndarray:
+    """QUAL-008: near-field bike-headlight footprint on the road plane."""
+    mask = np.zeros((h, w), dtype=np.uint8)
+    trap = np.array(
+        [
+            [int(w * 0.28), h - 1],
+            [int(w * 0.72), h - 1],
+            [int(w * 0.58), int(h * 0.52)],
+            [int(w * 0.42), int(h * 0.52)],
+        ],
+        dtype=np.int32,
+    )
+    cv2.fillConvexPoly(mask, trap, 1)
+    return mask
+
+
+def fit_headlight_mean(gray: np.ndarray) -> float:
+    cone = headlight_cone_mask(gray.shape[0], gray.shape[1])
+    vals = gray[cone > 0]
+    return float(vals.mean()) if vals.size else 0.0
+
+
+def _glare_score(bgr: np.ndarray, headlight_mean: float | None = None) -> float:
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     v = hsv[:, :, 2]
     sat = hsv[:, :, 1]
@@ -38,7 +60,14 @@ def _glare_score(bgr: np.ndarray) -> float:
     # Upper half glare (sun / headlights) is more diagnostic than road sparkle.
     h = bgr.shape[0]
     upper = bright[: h // 2].mean() if h > 2 else bright.mean()
-    return float(np.clip(upper * 3.5 + bright.mean() * 1.5, 0, 1))
+    score = float(np.clip(upper * 3.5 + bright.mean() * 1.5, 0, 1))
+    if headlight_mean is None or headlight_mean <= 1.0:
+        return score
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    cone = headlight_cone_mask(gray.shape[0], gray.shape[1]) > 0
+    expected = cone & (gray > headlight_mean * 0.65) & (gray < headlight_mean * 1.40)
+    extra = bright & ~expected
+    return float(np.clip(extra.mean() * 4.0 + (upper * 2.0), 0, 1))
 
 
 def _exposure_scores(gray: np.ndarray) -> tuple[float, float]:
@@ -90,14 +119,18 @@ def _classify(q: FrameQuality, road_visible: float, occluded: float, cfg: Qualit
     return VisibilityClass.CLEAR
 
 
-def evaluate_frame(bgr: np.ndarray, cfg: QualityConfig) -> FrameQualityMap:
+def evaluate_frame(
+    bgr: np.ndarray,
+    cfg: QualityConfig,
+    headlight_mean: float | None = None,
+) -> FrameQualityMap:
     h, w = bgr.shape[:2]
     small = cv2.resize(bgr, (480, int(480 * h / w)), interpolation=cv2.INTER_AREA)
     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
     lap = _laplacian_var(gray)
     motion = _motion_blur_score(gray)
     under, over = _exposure_scores(gray)
-    glare = _glare_score(small)
+    glare = _glare_score(small, headlight_mean=headlight_mean)
     defocus = _defocus_score(gray, lap)
     road = _road_roi_mask(small.shape[0], small.shape[1])
     road_visible = float((gray[road > 0] > 18).mean()) if road.any() else 0.0

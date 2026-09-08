@@ -51,3 +51,10 @@ def test_synth_train_and_damping_ab(tmp_path: Path):
     ab = damping_ab_report(a, b)
     assert ab["method"] == "auto_stats"
     assert "blur_share" in ab["A"]
+
+
+def test_model_ab_cli_payload(tmp_path: Path):
+    from rpar.ab_compare import write_model_ab
+    out = write_model_ab(tmp_path / "model_ab.json")
+    assert out["method"] == "same_input"
+    assert (tmp_path / "model_ab.json").exists()

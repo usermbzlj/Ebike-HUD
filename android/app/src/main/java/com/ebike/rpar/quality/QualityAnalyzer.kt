@@ -31,22 +31,49 @@ fun exposureScores(gray: GrayImage): Pair<Double, Double> {
     return under.coerceIn(0.0, 1.0) to over.coerceIn(0.0, 1.0)
 }
 
-fun glareScore(gray: GrayImage): Double {
+fun inHeadlightCone(x: Int, y: Int, w: Int, h: Int): Boolean {
+    if (y < (h * 0.52).toInt()) return false
+    val t = (y - h * 0.52) / (h * 0.48)
+    val left = w * (0.42 - t * 0.14)
+    val right = w * (0.58 + t * 0.14)
+    return x.toDouble() in left..right
+}
+
+fun fitHeadlightMean(gray: GrayImage): Double {
+    var s = 0.0; var n = 0
+    for (y in 0 until gray.h) for (x in 0 until gray.w) {
+        if (inHeadlightCone(x, y, gray.w, gray.h)) {
+            s += gray.at(x, y); n++
+        }
+    }
+    return if (n == 0) 0.0 else s / n
+}
+
+fun glareScore(gray: GrayImage, headlightMean: Double? = null): Double {
     val h = gray.h
     var bright = 0
     var upper = 0
     var nUpper = 0
+    var extra = 0
+    val mean = headlightMean
     for (y in 0 until h) for (x in 0 until gray.w) {
         val v = gray.at(x, y)
-        if (v > 245) {
+        val isBright = v > 245
+        if (isBright) {
             bright++
             if (y < h / 2) upper++
         }
         if (y < h / 2) nUpper++
+        if (mean != null && mean > 1.0 && isBright) {
+            val expected = inHeadlightCone(x, y, gray.w, gray.h) && v > mean * 0.65 && v < mean * 1.40
+            if (!expected) extra++
+        }
     }
     val u = if (nUpper == 0) 0.0 else upper / nUpper.toDouble()
     val g = bright / gray.px.size.toDouble()
-    return (u * 3.5 + g * 1.5).coerceIn(0.0, 1.0)
+    val raw = (u * 3.5 + g * 1.5).coerceIn(0.0, 1.0)
+    if (mean == null || mean <= 1.0) return raw
+    return (extra / gray.px.size.toDouble() * 4.0 + u * 2.0).coerceIn(0.0, 1.0)
 }
 
 fun defocusScore(gray: GrayImage, lap: Double): Double {
@@ -77,11 +104,11 @@ fun classify(q: FrameQuality, roadVisible: Double, occluded: Double, cfg: Qualit
     return VisibilityClass.CLEAR
 }
 
-fun evaluateFrame(gray: GrayImage, fullW: Int, fullH: Int, cfg: QualityConfig): FrameQualityMap {
+fun evaluateFrame(gray: GrayImage, fullW: Int, fullH: Int, cfg: QualityConfig, headlightMean: Double? = null): FrameQualityMap {
     val lap = gray.laplacianVar()
     val motion = motionBlurScore(gray)
     val (under, over) = exposureScores(gray)
-    val glare = glareScore(gray)
+    val glare = glareScore(gray, headlightMean)
     val defocus = defocusScore(gray, lap)
     var roadN = 0; var roadVis = 0
     for (y in 0 until gray.h) for (x in 0 until gray.w) {

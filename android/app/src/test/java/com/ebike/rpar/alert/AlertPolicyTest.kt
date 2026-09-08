@@ -67,4 +67,42 @@ class AlertPolicyTest {
         assertFalse(d.fired)
         assertTrue(d.reasons.any { it.contains("normal") || it.contains("info") || it.contains("flat") || it.contains("severity") })
     }
+
+    @Test
+    fun puddleInfoLayerDoesNotFire() {
+        val policy = AlertPolicy(AlertConfig(), enabled = true)
+        val obj = TrackedRoadObject(
+            schemaVersion = "1.0",
+            trackId = 2,
+            timestampNs = 1_000L,
+            lifecycleState = LifecycleState.CONFIRMED,
+            semanticType = SemanticType.PUDDLE,
+            geometryType = GeometryType.FLAT,
+            objectState = ObjectState.UNKNOWN,
+            severity = Severity.NONE,
+            direction = Direction.CENTER_FRONT,
+            distanceM = 8.0,
+            distanceConfidence = 0.8,
+            distanceValid = true,
+            ttcS = 1.2,
+            modelConfidence = 0.9,
+            visibilityConfidence = 0.9,
+            temporalConfidence = 0.9,
+            geometryConsistency = 0.9,
+            effectiveConfidence = 0.8,
+            pathRelevance = 0.9,
+            riskScore = 0.2,
+            alertScore = 0.0,
+            polygon = emptyList(),
+            bbox = floatArrayOf(0f, 0f, 1f, 1f),
+            maskRle = null,
+            sourceFrameId = 1L,
+            mountProfileId = "left_handlebar_v1",
+            modelVersion = "heuristic-cv-0.1.0",
+            visualStyle = "solid",
+        )
+        val d = policy.evaluate(obj, PerceptionStatus.NORMAL, 2_000L, true)
+        assertFalse(d.fired)
+        assertTrue(d.reasons.any { it.contains("info") })
+    }
 }

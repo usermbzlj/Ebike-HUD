@@ -121,6 +121,7 @@ fun HudScreen(runtime: RparRuntime, onOpenSettings: () -> Unit) {
                 if (v != null) gl.setPrimitives(
                     v.primitives, ui.previewSize.width, ui.previewSize.height,
                     ui.nightPalette, runtime.cfg.render.nightBrightness.toFloat(),
+                    ui.overlayAlpha, ui.strokeScale,
                 )
             },
             modifier = Modifier.fillMaxSize(),
@@ -141,7 +142,10 @@ fun HudScreen(runtime: RparRuntime, onOpenSettings: () -> Unit) {
                     Column(Modifier.clip(RoundedCornerShape(8.dp)).background(HudPanel).padding(10.dp)) {
                         val v = ui.view
                         Text("FPS ${v?.arFps?.toInt() ?: 0} / AI ${v?.inferFps?.toInt() ?: 0}", color = HudText, fontSize = 12.sp)
-                        Text("p95 ${v?.latencyP95Ms?.toInt() ?: 0} ms", color = HudText, fontSize = 12.sp)
+                        Text("p50 ${v?.latencyP50Ms?.toInt() ?: 0} / p95 ${v?.latencyP95Ms?.toInt() ?: 0} ms", color = HudText, fontSize = 12.sp)
+                        Text("q=${v?.queueDepth ?: 0} drop=${v?.droppedInfer ?: 0} dual=${if (v?.dualScale == true) "on" else "off"}", color = HudText, fontSize = 12.sp)
+                        Text("${v?.backend?.wire ?: "-"} ${v?.modelVersion ?: ""}", color = HudText, fontSize = 11.sp)
+                        Text("in ${(v?.inputFar?.joinToString("x") ?: "-")} / ${(v?.inputNear?.joinToString("x") ?: "-")}", color = HudMuted, fontSize = 11.sp)
                         Text("Blur ${"%.2f".format(v?.blur ?: 0.0)}  Glare ${"%.2f".format(v?.glare ?: 0.0)}", color = HudText, fontSize = 12.sp)
                         Text("Temp ${v?.thermalC?.let { "%.0f°C".format(it) } ?: "--"}", color = HudText, fontSize = 12.sp)
                         Text("Tracks ${v?.tracks?.joinToString { it.trackId.toString() } ?: "-"}", color = HudMuted, fontSize = 11.sp)
@@ -161,7 +165,12 @@ fun HudScreen(runtime: RparRuntime, onOpenSettings: () -> Unit) {
                 val labels = ui.view?.primitives?.filter { it.label != null }?.take(if (ui.uiMode == UiMode.RIDING) 5 else 12).orEmpty()
                 Column(Modifier.align(Alignment.CenterEnd).padding(16.dp)) {
                     labels.forEach { p ->
-                        Text(p.label ?: "", color = HudText, fontSize = 14.sp, modifier = Modifier.padding(4.dp).background(HudPanel).padding(6.dp))
+                        Text(
+                            p.label ?: "",
+                            color = HudText,
+                            fontSize = (14 * ui.fontScale).sp,
+                            modifier = Modifier.padding(4.dp).background(HudPanel).padding(6.dp),
+                        )
                     }
                 }
             }
@@ -248,6 +257,28 @@ fun SettingsScreen(runtime: RparRuntime) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("研究热图", color = HudText); Spacer(Modifier.weight(1f))
             Switch(checked = ui.researchHeatmap, onCheckedChange = { runtime.setResearchHeatmap(it) })
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("积水/散落物信息层", color = HudText); Spacer(Modifier.weight(1f))
+            Switch(checked = ui.showInfoLayer, onCheckedChange = { runtime.setShowInfoLayer(it) })
+        }
+        Text("轮廓粗细 (AR-010)", color = HudMuted)
+        Row {
+            Chip("细", ui.strokeScale < 0.85f) { runtime.setStrokeScale(0.7f) }
+            Chip("标准", ui.strokeScale in 0.85f..1.15f) { runtime.setStrokeScale(1f) }
+            Chip("粗", ui.strokeScale > 1.15f) { runtime.setStrokeScale(1.45f) }
+        }
+        Text("字体大小", color = HudMuted)
+        Row {
+            Chip("小", ui.fontScale < 0.9f) { runtime.setFontScale(0.8f) }
+            Chip("中", ui.fontScale in 0.9f..1.15f) { runtime.setFontScale(1f) }
+            Chip("大", ui.fontScale > 1.15f) { runtime.setFontScale(1.35f) }
+        }
+        Text("叠加透明度", color = HudMuted)
+        Row {
+            Chip("低", ui.overlayAlpha < 0.7f) { runtime.setOverlayAlpha(0.55f) }
+            Chip("中", ui.overlayAlpha in 0.7f..0.9f) { runtime.setOverlayAlpha(0.82f) }
+            Chip("高", ui.overlayAlpha > 0.9f) { runtime.setOverlayAlpha(1f) }
         }
         Text("减震 A/B（CAL-006）", color = HudMuted)
         Row {

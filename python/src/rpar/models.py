@@ -70,6 +70,8 @@ class MountProfile:
     known_distance_5m_px: float | None = None
     known_distance_10m_px: float | None = None
     known_distance_20m_px: float | None = None
+    headlight_mean: float | None = None
+    headlight_valid: bool = False
     calibration_hash: str = ""
     valid: bool = True
 
@@ -244,6 +246,8 @@ class TrackedRoadObject:
     visual_style: str
     label_rank: int | None = None
     road_xy_m: tuple[float, float] | None = None
+    depth_confidence: float | None = None
+    impact_score: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = _to_jsonable(self)
@@ -318,6 +322,10 @@ class PerceptionView:
     glare: float
     rec_seconds: float
     dual_scale: bool
+    latency_p50_ms: float = 0.0
+    dropped_infer: int = 0
+    input_far: tuple[int, int] = (768, 384)
+    input_near: tuple[int, int] = (640, 480)
 
 
 @dataclass(slots=True)

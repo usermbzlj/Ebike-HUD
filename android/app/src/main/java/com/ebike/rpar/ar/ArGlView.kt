@@ -24,8 +24,16 @@ class ArGlView(context: Context) : GLSurfaceView(context) {
         renderMode = RENDERMODE_CONTINUOUSLY
     }
 
-    fun setPrimitives(prims: List<RenderPrimitive>, width: Int, height: Int, night: Boolean = false, nightBrightness: Float = 0.72f) {
-        renderer.set(prims, width, height, night, nightBrightness)
+    fun setPrimitives(
+        prims: List<RenderPrimitive>,
+        width: Int,
+        height: Int,
+        night: Boolean = false,
+        nightBrightness: Float = 0.72f,
+        overlayAlpha: Float = 1f,
+        strokeScale: Float = 1f,
+    ) {
+        renderer.set(prims, width, height, night, nightBrightness, overlayAlpha, strokeScale)
     }
 }
 
@@ -35,14 +43,18 @@ class ArRenderer : GLSurfaceView.Renderer {
     @Volatile private var h = 1080
     @Volatile private var night = false
     @Volatile private var nightB = 0.72f
+    @Volatile private var overlayA = 1f
+    @Volatile private var strokeS = 1f
     private var program = 0
     private var aPos = 0
     private var uColor = 0
 
-    fun set(p: List<RenderPrimitive>, width: Int, height: Int, nightMode: Boolean = false, brightness: Float = 0.72f) {
+    fun set(p: List<RenderPrimitive>, width: Int, height: Int, nightMode: Boolean = false, brightness: Float = 0.72f, overlayAlpha: Float = 1f, strokeScale: Float = 1f) {
         prims = p
         night = nightMode
         nightB = brightness
+        overlayA = overlayAlpha.coerceIn(0.15f, 1f)
+        strokeS = strokeScale.coerceIn(0.5f, 2.5f)
         if (width > 0) w = width
         if (height > 0) h = height
     }
@@ -79,11 +91,12 @@ class ArRenderer : GLSurfaceView.Renderer {
                 (x / w.toFloat()) * 2f - 1f to (1f - (y / h.toFloat()) * 2f)
             }
             val mul = if (night) nightB else 1f
-            val col = floatArrayOf(p.colorRgba[0] * mul, p.colorRgba[1] * mul, p.colorRgba[2] * mul, p.colorRgba[3])
+            val a = (p.colorRgba[3] * overlayA).coerceIn(0.05f, 1f)
+            val col = floatArrayOf(p.colorRgba[0] * mul, p.colorRgba[1] * mul, p.colorRgba[2] * mul, a)
             if (p.polygon.size >= 3 && !p.dashed) {
                 drawFan(ndc, floatArrayOf(col[0], col[1], col[2], col[3] * 0.28f))
             }
-            drawOutline(ndc, col, p.dashed, p.thickness)
+            drawOutline(ndc, col, p.dashed, p.thickness * strokeS)
         }
     }
 

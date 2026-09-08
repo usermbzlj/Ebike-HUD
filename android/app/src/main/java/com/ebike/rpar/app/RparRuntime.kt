@@ -66,6 +66,10 @@ data class UiState(
     val storageLight: Boolean = false,
     val nightPalette: Boolean = false,
     val researchHeatmap: Boolean = true,
+    val strokeScale: Float = 1f,
+    val fontScale: Float = 1f,
+    val overlayAlpha: Float = 1f,
+    val showInfoLayer: Boolean = true,
     val dampingArm: String? = null,
     val dampingNote: String = "",
     val paused: Boolean = false,
@@ -106,6 +110,12 @@ class RparRuntime(private val app: android.app.Application) {
         pipeline = RealtimePipeline(cfg, loaded.engine, geom, loaded.packageId)
         pipeline.alerts.enabled = _ui.value.alertsEnabled
         pipeline.runMode = _ui.value.runMode
+        pipeline.nightPalette = _ui.value.nightPalette
+        pipeline.researchHeatmap = _ui.value.researchHeatmap
+        pipeline.strokeScale = _ui.value.strokeScale
+        pipeline.fontScale = _ui.value.fontScale
+        pipeline.overlayAlpha = _ui.value.overlayAlpha
+        pipeline.showInfoLayer = _ui.value.showInfoLayer
         voice.start()
         testPattern.onFrame = { frame -> ingest(frame, fromCamera = false) }
         camera.onFrame = { frame -> ingest(frame, fromCamera = true) }
@@ -136,6 +146,12 @@ class RparRuntime(private val app: android.app.Application) {
             disclaimerAccepted = disc,
             usingTestPattern = mode == RunMode.SAFE_MODE || mode == RunMode.REPLAY,
             touchLocked = screen == AppScreen.HUD && uiMode == UiMode.RIDING,
+            nightPalette = prefs.getBoolean("night_palette", false),
+            researchHeatmap = prefs.getBoolean("research_heatmap", true),
+            strokeScale = prefs.getFloat("stroke_scale", cfg.render.strokeScale),
+            fontScale = prefs.getFloat("font_scale", cfg.render.fontScale),
+            overlayAlpha = prefs.getFloat("overlay_alpha", cfg.render.overlayAlpha),
+            showInfoLayer = prefs.getBoolean("show_info_layer", cfg.render.showInfoLayer),
         )
     }
 
@@ -226,6 +242,10 @@ class RparRuntime(private val app: android.app.Application) {
         pipeline.runMode = _ui.value.runMode
         pipeline.nightPalette = _ui.value.nightPalette
         pipeline.researchHeatmap = _ui.value.researchHeatmap
+        pipeline.strokeScale = _ui.value.strokeScale
+        pipeline.fontScale = _ui.value.fontScale
+        pipeline.overlayAlpha = _ui.value.overlayAlpha
+        pipeline.showInfoLayer = _ui.value.showInfoLayer
         val id = SessionWriter.newSessionId(Build.MODEL)
         val root = File(app.filesDir, "sessions/session_$id")
         val capFile = File(app.filesDir, "capability/capability_report.json")
@@ -315,13 +335,49 @@ class RparRuntime(private val app: android.app.Application) {
     }
 
     fun setNightPalette(on: Boolean) {
+        prefs.edit().putBoolean("night_palette", on).apply()
         pipeline.nightPalette = on
         _ui.value = _ui.value.copy(nightPalette = on)
     }
 
     fun setResearchHeatmap(on: Boolean) {
+        prefs.edit().putBoolean("research_heatmap", on).apply()
         pipeline.researchHeatmap = on
         _ui.value = _ui.value.copy(researchHeatmap = on)
+    }
+
+    fun setStrokeScale(v: Float) {
+        prefs.edit().putFloat("stroke_scale", v).apply()
+        pipeline.strokeScale = v
+        _ui.value = _ui.value.copy(strokeScale = v)
+    }
+
+    fun setFontScale(v: Float) {
+        prefs.edit().putFloat("font_scale", v).apply()
+        pipeline.fontScale = v
+        _ui.value = _ui.value.copy(fontScale = v)
+    }
+
+    fun setOverlayAlpha(v: Float) {
+        prefs.edit().putFloat("overlay_alpha", v).apply()
+        pipeline.overlayAlpha = v
+        _ui.value = _ui.value.copy(overlayAlpha = v)
+    }
+
+    fun setShowInfoLayer(on: Boolean) {
+        prefs.edit().putBoolean("show_info_layer", on).apply()
+        pipeline.showInfoLayer = on
+        _ui.value = _ui.value.copy(showInfoLayer = on)
+    }
+
+    fun sampleHeadlightField(): Double? {
+        val bmp = latestBitmap ?: return null
+        val gray = com.ebike.rpar.quality.GrayImage.fromBitmap(bmp, 480)
+        val mean = com.ebike.rpar.quality.fitHeadlightMean(gray)
+        val cur = calibration.loadActive(cfg.camera.width, cfg.camera.height)
+        val saved = calibration.save(cur.copy(headlightMean = mean, headlightValid = true))
+        pipeline.geometry.setMount(saved)
+        return mean
     }
 
     fun startDampingSample(arm: String) {
@@ -460,6 +516,7 @@ class RparRuntime(private val app: android.app.Application) {
                             .put("infer_fps", view.inferFps)
                             .put("ar_fps", view.arFps)
                             .put("latency_p95_ms", view.latencyP95Ms)
+                            .put("latency_p50_ms", view.latencyP50Ms)
                             .put("thermal_c", sensors.thermalC)
                             .put("thermal_reason", pipeline.thermalReason)
                             .put("skip_far_roi", pipeline.skipFarRoi)

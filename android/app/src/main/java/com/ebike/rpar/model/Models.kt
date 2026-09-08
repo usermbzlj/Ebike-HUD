@@ -34,6 +34,8 @@ data class MountProfile(
     val knownDistance5mPx: Double? = null,
     val knownDistance10mPx: Double? = null,
     val knownDistance20mPx: Double? = null,
+    val headlightMean: Double? = null,
+    val headlightValid: Boolean = false,
     val calibrationHash: String = "",
     val valid: Boolean = true,
 ) {
@@ -54,6 +56,8 @@ data class MountProfile(
         .put("known_distance_5m_px", knownDistance5mPx)
         .put("known_distance_10m_px", knownDistance10mPx)
         .put("known_distance_20m_px", knownDistance20mPx)
+        .put("headlight_mean", headlightMean)
+        .put("headlight_valid", headlightValid)
         .put("calibration_hash", calibrationHash)
         .put("valid", valid)
 
@@ -75,6 +79,8 @@ data class MountProfile(
             knownDistance5mPx = o.optDoubleOrNull("known_distance_5m_px"),
             knownDistance10mPx = o.optDoubleOrNull("known_distance_10m_px"),
             knownDistance20mPx = o.optDoubleOrNull("known_distance_20m_px"),
+            headlightMean = o.optDoubleOrNull("headlight_mean"),
+            headlightValid = o.optBoolean("headlight_valid", false),
             calibrationHash = o.optString("calibration_hash", ""),
             valid = o.optBoolean("valid", true),
         )
@@ -298,6 +304,8 @@ data class TrackedRoadObject(
     val visualStyle: String,
     var labelRank: Int? = null,
     val roadXyM: Pair<Double, Double>? = null,
+    val depthConfidence: Double = 0.0,
+    val impactScore: Double? = null,
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("schema_version", schemaVersion)
@@ -329,6 +337,8 @@ data class TrackedRoadObject(
         .put("visual_style", visualStyle)
         .put("label_rank", labelRank)
         .put("mask_rle", maskRle?.toJson() ?: JSONObject.NULL)
+        .put("depth_confidence", depthConfidence)
+        .put("impact_score", impactScore)
 }
 
 data class AlertDecision(
@@ -388,6 +398,10 @@ data class PerceptionView(
     val glare: Double,
     val recSeconds: Double,
     val dualScale: Boolean,
+    val latencyP50Ms: Double = 0.0,
+    val droppedInfer: Int = 0,
+    val inputFar: IntArray = intArrayOf(768, 384),
+    val inputNear: IntArray = intArrayOf(640, 480),
 )
 
 data class YuvImageBuffer(

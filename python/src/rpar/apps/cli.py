@@ -12,7 +12,7 @@ from rpar.capture import record_simulated_session
 from rpar.config import load_config
 from rpar.golden import run_acceptance_suite, run_oracle_golden, run_simulator_golden, run_video_file
 from rpar.ml.eval import write_eval_bundle
-from rpar.ab_compare import write_damping_ab
+from rpar.ab_compare import write_damping_ab, write_model_ab
 from rpar.ml.active import write_active_queue
 from rpar.ml.synth_train import write_training_bundle
 from rpar.ml.train import split_sessions, write_model_package, write_run_card
@@ -101,6 +101,9 @@ def main(argv: list[str] | None = None) -> int:
     ab.add_argument("session_a")
     ab.add_argument("session_b")
     ab.add_argument("--out", default="artifacts/damping_ab.json")
+
+    mab = sub.add_parser("model-ab", help="MOD-003 same-input engine A/B")
+    mab.add_argument("--out", default="artifacts/model_ab.json")
 
     tr = sub.add_parser("train-synth", help="session-isolated linear trainer + precision cards")
     tr.add_argument("--out", default="artifacts/train_synth")
@@ -194,6 +197,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "damping-ab":
         print(json.dumps(write_damping_ab(Path(args.session_a), Path(args.session_b), Path(args.out)), indent=2))
+        return 0
+    if args.cmd == "model-ab":
+        print(json.dumps(write_model_ab(Path(args.out), load_config()), indent=2))
         return 0
     if args.cmd == "train-synth":
         print(json.dumps(write_training_bundle(Path(args.out), export_tflite=args.export_tflite), indent=2)[:2000])

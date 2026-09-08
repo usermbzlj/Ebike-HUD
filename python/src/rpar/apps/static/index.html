@@ -97,7 +97,9 @@
         <div class="alert" id="alertLine"></div>
         <h2>DIAGNOSTICS</h2>
         <div class="metric"><span>AI / AR FPS</span><b id="mFps">—</b></div>
-        <div class="metric"><span>Latency p95</span><b id="mLat">—</b></div>
+        <div class="metric"><span>Latency p50 / p95</span><b id="mLat">—</b></div>
+        <div class="metric"><span>Queue / drop / dual</span><b id="mQd">—</b></div>
+        <div class="metric"><span>Input</span><b id="mIn">—</b></div>
         <div class="metric"><span>Blur / Glare</span><b id="mQ">—</b></div>
         <div class="metric"><span>Backend</span><b id="mBk">—</b></div>
         <div class="metric"><span>Model</span><b id="mMd">—</b></div>
@@ -152,7 +154,9 @@
       $("speed").textContent = (st.speed_kmh ?? 0).toFixed(0) + " km/h";
       $("status").textContent = st.status_copy;
       $("mFps").textContent = (st.ar_fps||0).toFixed(0) + " / " + (st.infer_fps||0).toFixed(1);
-      $("mLat").textContent = (st.latency_p95_ms||0).toFixed(0) + " ms";
+      $("mLat").textContent = (st.latency_p50_ms||0).toFixed(0) + " / " + (st.latency_p95_ms||0).toFixed(0) + " ms";
+      $("mQd").textContent = (st.queue_depth||0) + " / " + (st.dropped_infer||0) + " / " + (st.dual_scale ? "on" : "off");
+      $("mIn").textContent = (st.input_far||[]).join("x") + " / " + (st.input_near||[]).join("x");
       $("mQ").textContent = (st.blur||0).toFixed(2) + " / " + (st.glare||0).toFixed(2);
       $("mBk").textContent = st.backend;
       $("mMd").textContent = st.model_version;

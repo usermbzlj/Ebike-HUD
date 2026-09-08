@@ -159,6 +159,10 @@ class HeuristicPerceptionEngine:
         scored = [(o.polygon, o.model_confidence) for o in observations]
         keep = nms_polygons(scored, 0.4) if scored else []
         fused = [observations[i] for i in keep]
+        info = self._detect_puddles(frame, bgr, road, quality, occ) + self._detect_gravel(frame, bgr, road, quality, occ)
+        if info:
+            info_keep = nms_polygons([(o.polygon, o.model_confidence) for o in info], 0.4)
+            fused.extend(info[i] for i in info_keep)
         for o in fused:
             if o.mask_rle is None:
                 o.mask_rle = mask_rle_from_polygon(o.polygon)
@@ -368,6 +372,102 @@ class HeuristicPerceptionEngine:
                     ObjectState.ABNORMAL,
                     Severity.LIGHT,
                     0.58,
+                    quality,
+                )
+            )
+        return out
+
+    def _detect_puddles(
+        self,
+        frame: SynchronizedFrame,
+        bgr: np.ndarray,
+        road: np.ndarray,
+        quality: FrameQualityMap | None,
+        occ: list[list[tuple[float, float]]],
+    ) -> list[RoadObservation]:
+        """PER-013: bright wet reflections as info-layer, never geometric risk."""
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(gray, (7, 7), 0)
+        road_mean = float(gray[road > 0].mean()) if np.any(road) else 80.0
+        thr = min(245, max(int(road_mean + 45), int(road_mean * 1.35 + 20)))
+        near = cv2.dilate(road, np.ones((17, 17), np.uint8))
+        bright = cv2.threshold(blur, thr, 255, cv2.THRESH_BINARY)[1]
+        bright = cv2.bitwise_and(bright, near)
+        bright = cv2.morphologyEx(bright, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+        contours, _ = cv2.findContours(bright, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        h, w = gray.shape
+        out: list[RoadObservation] = []
+        for c in contours:
+            area = cv2.contourArea(c)
+            if area < 180 or area > 0.06 * w * h:
+                continue
+            x, y, ww, hh = cv2.boundingRect(c)
+            if y < h * 0.40:
+                continue
+            ar = ww / max(hh, 1)
+            if ar > 3.8 or ar < 0.28:
+                continue
+            bbox = (float(x), float(y), float(x + ww), float(y + hh))
+            if self._inside_occlusion(bbox, occ):
+                continue
+            circ = 4 * np.pi * area / max(cv2.arcLength(c, True) ** 2, 1e-3)
+            if circ < 0.38:
+                continue
+            out.append(
+                _contour_to_obs(
+                    c,
+                    frame,
+                    SemanticType.PUDDLE,
+                    GeometryType.FLAT,
+                    ObjectState.UNKNOWN,
+                    Severity.NONE,
+                    0.58 + 0.25 * min(circ, 1.0),
+                    quality,
+                )
+            )
+        return out
+
+    def _detect_gravel(
+        self,
+        frame: SynchronizedFrame,
+        bgr: np.ndarray,
+        road: np.ndarray,
+        quality: FrameQualityMap | None,
+        occ: list[list[tuple[float, float]]],
+    ) -> list[RoadObservation]:
+        """PER-013: scattered high-texture debris as info-layer."""
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(gray, (7, 7), 0)
+        tex = cv2.absdiff(gray, blur)
+        road_f = road > 0
+        if not road_f.any():
+            return []
+        mid = (gray > 50) & (gray < 185) & road_f & (tex > 16)
+        hot = (mid.astype(np.uint8) * 255)
+        hot = cv2.morphologyEx(hot, cv2.MORPH_OPEN, np.ones((7, 7), np.uint8))
+        contours, _ = cv2.findContours(hot, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        h, w = gray.shape
+        out: list[RoadObservation] = []
+        for c in contours:
+            area = cv2.contourArea(c)
+            if area < 280 or area > 0.07 * w * h:
+                continue
+            x, y, ww, hh = cv2.boundingRect(c)
+            bbox = (float(x), float(y), float(x + ww), float(y + hh))
+            if self._inside_occlusion(bbox, occ):
+                continue
+            circ = 4 * np.pi * area / max(cv2.arcLength(c, True) ** 2, 1e-3)
+            if circ > 0.72:
+                continue
+            out.append(
+                _contour_to_obs(
+                    c,
+                    frame,
+                    SemanticType.GRAVEL,
+                    GeometryType.ROUGH,
+                    ObjectState.UNKNOWN,
+                    Severity.NONE,
+                    0.52,
                     quality,
                 )
             )

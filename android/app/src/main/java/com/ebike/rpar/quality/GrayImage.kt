@@ -234,3 +234,18 @@ fun morphologyOpen(src: BooleanArray, w: Int, h: Int, k: Int = 3): BooleanArray 
     }
     return out
 }
+
+fun morphologyDilate(src: BooleanArray, w: Int, h: Int, k: Int = 5): BooleanArray {
+    val r = k / 2
+    val out = BooleanArray(w * h)
+    for (y in 0 until h) for (x in 0 until w) {
+        var hit = false
+        loop@ for (dy in -r..r) for (dx in -r..r) {
+            val xx = (x + dx).coerceIn(0, w - 1)
+            val yy = (y + dy).coerceIn(0, h - 1)
+            if (src[yy * w + xx]) { hit = true; break@loop }
+        }
+        out[y * w + x] = hit
+    }
+    return out
+}

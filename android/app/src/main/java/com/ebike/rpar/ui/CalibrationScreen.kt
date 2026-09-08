@@ -129,6 +129,10 @@ fun CalibrationScreen(runtime: RparRuntime) {
                     }) { Text("保存配置") }
                 }
                 Text(healthMsg, color = HudText)
+                Button(onClick = {
+                    val mean = runtime.sampleHeadlightField()
+                    healthMsg = if (mean == null) "无预览帧，无法采样车灯光场" else "车灯光场均值 ${mean.toInt()}（更换安装后需重采）"
+                }) { Text("采样车灯光场 (QUAL-008)") }
                 runtime.calibration.list().forEach { p ->
                     Text("${p.profileId}  hash=${p.calibrationHash} valid=${p.valid}", color = HudMuted, fontSize = 12.sp)
                 }

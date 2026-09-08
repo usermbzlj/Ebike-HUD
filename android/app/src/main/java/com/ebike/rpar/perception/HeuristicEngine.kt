@@ -20,6 +20,7 @@ import com.ebike.rpar.quality.GrayImage
 import com.ebike.rpar.quality.connectedComponents
 import com.ebike.rpar.quality.inRoadTrapezoid
 import com.ebike.rpar.quality.maskVisibility
+import com.ebike.rpar.quality.morphologyDilate
 import com.ebike.rpar.quality.morphologyOpen
 import kotlin.math.abs
 import kotlin.system.measureNanoTime
@@ -81,13 +82,20 @@ class HeuristicEngine(private val cfg: RparConfig) : PerceptionEngine {
                 frame, far, quality, farBox.x0, farBox.y0, full.w, full.h, sx, sy, occ,
             )
             val nearObs = detectOnRoi(frame, near, quality, nearBox.x0, nearBox.y0, full.w, full.h, sx, sy, occ)
-            val fullObs = detectBlobs(frame, full, road, quality, occ, sx, sy) +
+            val geo = farObs + nearObs +
+                detectBlobs(frame, full, road, quality, occ, sx, sy) +
                 detectCircles(frame, full, road, quality, sx, sy) +
                 detectBumps(frame, full, road, quality, sx, sy) +
                 detectRough(frame, full, road, quality, sx, sy)
-            val all = farObs + nearObs + fullObs
-            val keep = nmsPolygons(all.map { it.polygon to it.modelConfidence }, 0.4)
-            observations = keep.map { all[it] }
+            val keep = nmsPolygons(geo.map { it.polygon to it.modelConfidence }, 0.4)
+            val fused = keep.map { geo[it] }.toMutableList()
+            val info = detectPuddles(frame, full, road, quality, occ, sx, sy) +
+                detectGravel(frame, full, road, quality, occ, sx, sy)
+            if (info.isNotEmpty()) {
+                val infoKeep = nmsPolygons(info.map { it.polygon to it.modelConfidence }, 0.4)
+                fused += infoKeep.map { info[it] }
+            }
+            observations = fused
             roadPoly = maskToPoly(road, full.w, full.h, sx, sy)
         }
         return PerceptionResult(
@@ -293,6 +301,66 @@ class HeuristicEngine(private val cfg: RparConfig) : PerceptionEngine {
         return blobs.filter { it.area in 80..(0.12 * g.w * g.h).toInt() }.map { b ->
             val poly = rectPolygon(b.x0 * sx, b.y0 * sy, b.x1 * sx, b.y1 * sy)
             makeObs(frame, poly, SemanticType.ROUGH_BROKEN, GeometryType.ROUGH, ObjectState.ABNORMAL, Severity.LIGHT, 0.58, quality)
+        }
+    }
+
+    private fun detectPuddles(
+        frame: SynchronizedFrame,
+        g: GrayImage,
+        road: BooleanArray,
+        quality: FrameQualityMap?,
+        occ: List<List<Pair<Float, Float>>>,
+        sx: Float,
+        sy: Float,
+    ): List<RoadObservation> {
+        val blur = g.boxBlur(5)
+        var roadMean = 80.0; var n = 0
+        for (i in road.indices) if (road[i]) { roadMean += g.px[i]; n++ }
+        if (n > 0) roadMean /= n
+        val thr = minOf(245, maxOf((roadMean + 45).toInt(), (roadMean * 1.35 + 20).toInt()))
+        val near = morphologyDilate(road, g.w, g.h, 9)
+        val bright = BooleanArray(g.w * g.h) { i -> near[i] && blur.px[i] >= thr }
+        val blobs = connectedComponents(morphologyOpen(bright, g.w, g.h, 3), g.w, g.h, 60)
+        val out = ArrayList<RoadObservation>()
+        for (b in blobs) {
+            if (b.area > 0.06 * g.w * g.h) continue
+            if (b.cy < g.h * 0.40f) continue
+            val ar = (b.x1 - b.x0 + 1).toDouble() / maxOf(1, b.y1 - b.y0)
+            if (ar > 3.8 || ar < 0.28) continue
+            val bbox = floatArrayOf(b.x0 * sx, b.y0 * sy, b.x1 * sx, b.y1 * sy)
+            if (insideOcc(bbox, occ)) continue
+            if (b.circularity < 0.38) continue
+            val poly = ellipsePolygon(b.cx * sx, b.cy * sy, (b.x1 - b.x0) * 0.5f * sx, (b.y1 - b.y0) * 0.5f * sy)
+            out += makeObs(
+                frame, poly, SemanticType.PUDDLE, GeometryType.FLAT,
+                ObjectState.UNKNOWN, Severity.NONE, 0.58 + 0.25 * minOf(b.circularity, 1.0), quality,
+            )
+        }
+        return out
+    }
+
+    private fun detectGravel(
+        frame: SynchronizedFrame,
+        g: GrayImage,
+        road: BooleanArray,
+        quality: FrameQualityMap?,
+        occ: List<List<Pair<Float, Float>>>,
+        sx: Float,
+        sy: Float,
+    ): List<RoadObservation> {
+        val blur = g.boxBlur(5)
+        val hot = BooleanArray(g.w * g.h) { i ->
+            val v = g.px[i]
+            road[i] && v in 50..185 && kotlin.math.abs(v - blur.px[i]) > 16
+        }
+        val blobs = connectedComponents(morphologyOpen(hot, g.w, g.h, 5), g.w, g.h, 80)
+        return blobs.filter { it.area in 80..(0.07 * g.w * g.h).toInt() && it.circularity <= 0.72 }.mapNotNull { b ->
+            val bbox = floatArrayOf(b.x0 * sx, b.y0 * sy, b.x1 * sx, b.y1 * sy)
+            if (insideOcc(bbox, occ)) null
+            else {
+                val poly = rectPolygon(b.x0 * sx, b.y0 * sy, b.x1 * sx, b.y1 * sy)
+                makeObs(frame, poly, SemanticType.GRAVEL, GeometryType.ROUGH, ObjectState.UNKNOWN, Severity.NONE, 0.52, quality)
+            }
         }
     }
 

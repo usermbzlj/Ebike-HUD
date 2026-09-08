@@ -78,6 +78,10 @@ class RenderConfig:
     confirmed_alpha: float = 0.85
     overlay_error_px: float = 8.0
     night_brightness: float = 0.72
+    stroke_scale: float = 1.0
+    font_scale: float = 1.0
+    overlay_alpha: float = 1.0
+    show_info_layer: bool = True
 
 
 @dataclass
