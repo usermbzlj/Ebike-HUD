@@ -47,3 +47,6 @@ def test_field_suite_smoke(tmp_path: Path):
     bundle = run_field_videos(out_dir=tmp_path / "field", max_frames=8)
     assert bundle["n_ok"] >= 2
     assert (tmp_path / "field" / "field_video.json").exists()
+    assert (tmp_path / "field" / "m2_report.json").exists()
+    assert "m2" in bundle
+    assert "not_claimed" in bundle["m2"]

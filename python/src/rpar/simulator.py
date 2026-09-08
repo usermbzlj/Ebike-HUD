@@ -121,9 +121,22 @@ class RoadSimulator:
         impact = 1.8 if self._in_windows(t, self.sim.blur_windows) else 0.0
         if self.sim.vibration:
             impact += 0.55
+        impact += self._geometry_impact_at(t)
         gyro = (float(0.03 * np.sin(t * 17.0)), float(0.04 * np.sin(t * 11.0) + impact * 0.4), float(rough + impact))
         accel = (float(0.15 * np.sin(t * 9.0)), float(self.sim.speed_mps * 0.02), float(9.81 + impact * 4.0 + rough))
         return gyro, accel
+
+    def _geometry_impact_at(self, t: float) -> float:
+        """Vertical IMU when the ego is on concave/convex/rough/step. Flat patches stay quiet."""
+        y = self.ego_y(t)
+        extra = 0.0
+        for obj in self.objects:
+            rel = obj.y0_m - y
+            if rel < -(obj.length_m + 0.4) or rel > 0.4:
+                continue
+            if obj.geometry in {GeometryType.CONCAVE, GeometryType.CONVEX, GeometryType.ROUGH, GeometryType.STEP}:
+                extra = max(extra, 1.35 + 0.4 * max(int(obj.severity), 0))
+        return extra
 
     def classmap_at(self, index: int) -> np.ndarray:
         """Ground-truth dense labels: 0 bg, 1 road, 2 anomaly, 3 occlusion (PER-014)."""

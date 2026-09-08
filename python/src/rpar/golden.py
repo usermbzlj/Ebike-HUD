@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,7 @@ import cv2
 import numpy as np
 
 from rpar.config import RparConfig, load_config
-from rpar.enums import Direction, LifecycleState, UiMode
+from rpar.enums import Direction, LifecycleState, SemanticType, UiMode
 from rpar.geometry import GeometryEngine
 from rpar.overlay import compose
 from rpar.perception import HeuristicPerceptionEngine, load_field_engine, oracle_engine_for_sim
@@ -292,8 +293,14 @@ def run_video_file(
     i = 0
     t0 = 1_000_000_000_000
     unique_tracks: set[int] = set()
+    confirmed_ids: set[int] = set()
+    confirmed_sem: dict[int, str] = {}
+    confirmed_dist_ids: set[int] = set()
+    confirmed_dir_ids: set[int] = set()
     confirmed_rows = 0
     alerts = 0
+    road_frames = 0
+    occ_frames = 0
     blurs: list[float] = []
     glares: list[float] = []
     lumas: list[float] = []
@@ -344,10 +351,20 @@ def run_video_file(
         alerts += sum(1 for a in view.alerts if a.fired)
         blurs.append(view.blur)
         glares.append(view.glare)
+        if view.road_polygon and len(view.road_polygon) >= 3:
+            road_frames += 1
+        if view.occluded_polygons:
+            occ_frames += 1
         for tr in view.tracks:
             unique_tracks.add(tr.track_id)
             if tr.lifecycle_state in {LifecycleState.CONFIRMED, LifecycleState.ALERTED}:
                 confirmed_rows += 1
+                confirmed_ids.add(tr.track_id)
+                confirmed_sem.setdefault(tr.track_id, tr.semantic_type.value)
+                if tr.distance_m is not None and tr.distance_valid:
+                    confirmed_dist_ids.add(tr.track_id)
+                if tr.direction != Direction.UNKNOWN:
+                    confirmed_dir_ids.add(tr.track_id)
         i += 1
     cap.release()
     vw.release()
@@ -356,6 +373,9 @@ def run_video_file(
         eng.close()
     luma = float(np.mean(lumas)) if lumas else 0.0
     sidecar = cap_info.get("sidecar") if isinstance(cap_info.get("sidecar"), dict) else cap_info
+    duration_s = (i / fps) if fps else 0.0
+    n_confirmed_tracks = len(confirmed_ids)
+    sem_counts = dict(Counter(confirmed_sem.values()))
     return {
         "frames": i,
         "out": str(out_dir / "overlay.mp4"),
@@ -365,11 +385,22 @@ def run_video_file(
         "width": w,
         "height": h,
         "src_fps": fps,
+        "duration_s": duration_s,
         "mean_luma": luma,
         "lighting": "night" if luma < 105 else "day",
         "n_unique_tracks": len(unique_tracks),
         "n_confirmed_rows": confirmed_rows,
+        "n_confirmed_tracks": n_confirmed_tracks,
+        "n_unconfirmed_tracks": max(0, len(unique_tracks) - n_confirmed_tracks),
         "n_alerts_fired": alerts,
+        "confirmed_semantics": sem_counts,
+        "n_rough_broken_confirmed": sum(1 for s in confirmed_sem.values() if s == SemanticType.ROUGH_BROKEN.value),
+        "n_unknown_confirmed": sum(1 for s in confirmed_sem.values() if s == SemanticType.UNKNOWN_ANOMALY.value),
+        "n_confirmed_with_distance": len(confirmed_dist_ids),
+        "n_confirmed_with_direction": len(confirmed_dir_ids),
+        "road_frame_share": (road_frames / i) if i else 0.0,
+        "occlusion_frame_share": (occ_frames / i) if i else 0.0,
+        "confirmed_per_min": (n_confirmed_tracks / duration_s * 60.0) if duration_s > 0 else 0.0,
         "mean_blur": float(np.mean(blurs)) if blurs else None,
         "mean_glare": float(np.mean(glares)) if glares else None,
         "mean_infer_fps": pipe.last_view.infer_fps if pipe.last_view else 0.0,

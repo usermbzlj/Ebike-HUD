@@ -191,6 +191,18 @@ def write_eval_bundle(out_dir: Path, cfg: RparConfig | None = None) -> dict[str,
     cards = precision_cards(out_dir / "precision")
     cal = hn.get("calibration") or {}
     (out_dir / "reliability.json").write_text(json.dumps(cal, indent=2), encoding="utf-8")
-    bundle = {"oracle": oracle, "scenes": scenes, "hard_negatives": hn, "precision_cards": cards, "calibration": cal}
+    from rpar.impact import synthetic_future_impact_proof
+
+    impact = synthetic_future_impact_proof()
+    impact_pub = {k: v for k, v in impact.items() if k != "rows"}
+    (out_dir / "impact_m5.json").write_text(json.dumps(impact, indent=2), encoding="utf-8")
+    bundle = {
+        "oracle": oracle,
+        "scenes": scenes,
+        "hard_negatives": hn,
+        "precision_cards": cards,
+        "calibration": cal,
+        "impact_m5": impact_pub,
+    }
     (out_dir / "eval_bundle.json").write_text(json.dumps(bundle, indent=2), encoding="utf-8")
     return bundle

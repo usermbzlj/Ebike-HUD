@@ -143,6 +143,11 @@ def main(argv: list[str] | None = None) -> int:
     ml.add_argument("raw")
     ml.add_argument("--severity", default="")
 
+    ia = sub.add_parser("impact-align", help="M5: align confirmed tracks to future IMU (never alerts)")
+    ia.add_argument("session")
+    ia.add_argument("--out", default="artifacts/impact_align.json")
+    ia.add_argument("--horizon", type=float, default=3.0)
+
     args = p.parse_args(argv)
     if args.cmd == "serve":
         from rpar.apps.server import main as serve_main
@@ -260,6 +265,11 @@ def main(argv: list[str] | None = None) -> int:
         from rpar.ml.labelmap import map_record
 
         print(json.dumps(map_record(args.source, args.raw, args.severity or None), indent=2, ensure_ascii=False))
+        return 0
+    if args.cmd == "impact-align":
+        from rpar.impact import write_impact_report
+
+        print(json.dumps(write_impact_report(Path(args.session), Path(args.out), horizon_s=args.horizon), indent=2, ensure_ascii=False)[:8000])
         return 0
     if args.cmd == "export":
         src = Path(args.session)

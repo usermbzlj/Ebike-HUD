@@ -69,4 +69,10 @@ rpar serve
 rpar field-video --out artifacts/field_video
 ```
 
-控制台「YOLOPv2 实拍」会编目并用启发式 + YOLOPv2（若本地有 ONNX）跑 AR。mp4 本身不进 Git；`Video/catalog.json` 记录时长、分辨率和白天/夜间猜测。这不是坑洞检测，也不能当作首次确认距离的场测证据。
+控制台「YOLOPv2 实拍」会编目并用启发式 + YOLOPv2（若本地有 ONNX）跑 AR。mp4 本身不进 Git；`Video/catalog.json` 记录时长、分辨率和白天/夜间猜测。`m2_report.json` 是无 GT 的软件门（夜间不得确认沥青噪声）。这不是坑洞检测，也不能当作首次确认距离的场测证据。
+
+会话上的未来冲击对齐（不进提醒）：
+
+```text
+rpar impact-align session_... --out artifacts/impact_align.json
+```

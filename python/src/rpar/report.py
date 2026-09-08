@@ -47,6 +47,18 @@ def build_report(session_dir: Path) -> dict[str, Any]:
         ][:: max(1, len(diag) // 240 or 1)],
         "visibility": dict(Counter(t.get("visibility_confidence") is not None for t in tracks)),
     }
+    try:
+        from rpar.impact import align_session_impact
+
+        impact = align_session_impact(root)
+        report["impact_m5"] = {
+            "n_aligned": impact.get("n_aligned"),
+            "labels": impact.get("labels"),
+            "used_for_alert": False,
+            "separation": impact.get("separation"),
+        }
+    except Exception as exc:
+        report["impact_m5"] = {"error": str(exc)[:200], "used_for_alert": False}
     return report
 
 

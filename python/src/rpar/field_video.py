@@ -274,6 +274,63 @@ def render_yolop_stills(path: Path, dest: Path, engine, ratios: tuple[float, ...
     return out
 
 
+def m2_clip_gates(clip: dict[str, Any]) -> dict[str, Any]:
+    """Appendix B software proxies for a single field clip. Not GT first-confirm or PKC110 10 h."""
+    run = clip.get("run") if isinstance(clip.get("run"), dict) else {}
+    alias = str(clip.get("alias") or "")
+    lighting = str(clip.get("lighting") or run.get("lighting") or "unknown")
+    frames = int(run.get("frames") or 0)
+    overlay_ok = bool(run.get("overlay_ok"))
+    n_conf = int(run.get("n_confirmed_tracks") or 0)
+    n_alerts = int(run.get("n_alerts_fired") or 0)
+    n_rough = int(run.get("n_rough_broken_confirmed") or 0)
+    road_share = float(run.get("road_frame_share") or 0.0)
+    per_min = float(run.get("confirmed_per_min") or 0.0)
+    is_night = alias == "night_25013"
+    is_day = alias == "day_25007"
+    checks: dict[str, bool] = {
+        "overlay_ok": overlay_ok,
+        "has_frames": frames > 0,
+    }
+    if is_night:
+        checks["night_no_confirmed_tracks"] = n_conf == 0
+        checks["night_no_alerts"] = n_alerts == 0
+        checks["night_no_rough_broken"] = n_rough == 0
+    if is_day:
+        checks["day_road_polygon"] = road_share >= 0.05
+    passed = all(checks.values()) if checks else False
+    return {
+        "alias": alias,
+        "lighting": lighting,
+        "checks": checks,
+        "pass": passed,
+        "n_confirmed_tracks": n_conf,
+        "n_alerts_fired": n_alerts,
+        "confirmed_per_min": per_min,
+        "road_frame_share": road_share,
+        "spec_solid_fp_per_min": 1.0 if is_night else (0.5 if is_day else None),
+        "note": "Night confirmed==0 is a false-positive proxy on the smooth-asphalt clip, not GT first-confirm.",
+    }
+
+
+def m2_field_report(results: list[dict[str, Any]]) -> dict[str, Any]:
+    gates = [m2_clip_gates(r) for r in results if r.get("ok") or r.get("run")]
+    runnable = [g for g in gates if g.get("alias")]
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "gates": runnable,
+        "pass": all(g["pass"] for g in runnable) if runnable else False,
+        "n_clips": len(runnable),
+        "not_claimed": [
+            "first_confirm_distance_with_geometric_GT",
+            "PKC110_Camera2_1080p60_SDR",
+            "10h_false_voice_rate",
+            "60min_thermal_no_crash",
+        ],
+        "note": "M2 software gates on local Video/ transcodes. Spec 11.2 distance/recall still need PKC110 + GT.",
+    }
+
+
 def run_field_videos(
     video_dir: Path | None = None,
     out_dir: Path | None = None,
@@ -291,7 +348,9 @@ def run_field_videos(
     live = {c["name"]: c for c in list_clips(d)}
     engine = load_field_engine(cfg, prefer_yolop=prefer_yolop)
     results: list[dict[str, Any]] = []
+    hybrid = False
     try:
+        hybrid = bool(engine.capability().get("hybrid")) if hasattr(engine, "capability") else False
         for clip in catalog["clips"]:
             if not clip.get("ok"):
                 results.append(clip)
@@ -313,14 +372,17 @@ def run_field_videos(
             results.append(row)
     finally:
         engine.close()
+    m2 = m2_field_report(results)
     bundle = {
         "schema_version": SCHEMA_VERSION,
         "catalog": catalog,
         "max_frames": max_frames,
         "prefer_yolop": prefer_yolop,
-        "hybrid": bool(engine.capability().get("hybrid")) if hasattr(engine, "capability") else False,
+        "hybrid": hybrid,
         "results": results,
         "n_ok": sum(1 for r in results if r.get("run", {}).get("frames", 0) > 0),
+        "m2": m2,
     }
+    (out_dir / "m2_report.json").write_text(json.dumps(m2, indent=2, ensure_ascii=False), encoding="utf-8")
     (out_dir / "field_video.json").write_text(json.dumps(bundle, indent=2, ensure_ascii=False), encoding="utf-8")
     return bundle
