@@ -23,6 +23,7 @@ class CapabilityProbe(private val context: Context) {
         concurrentCombo: JSONArray = JSONArray(),
         sensorRates: JSONObject = JSONObject(),
         ttsReady: Boolean = false,
+        modelFile: File? = null,
     ): JSONObject {
         val cam = probeCameras()
         val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -48,7 +49,7 @@ class CapabilityProbe(private val context: Context) {
                 .put("sdk_int", Build.VERSION.SDK_INT))
             .put("camera", cam)
             .put("sensors", sensorRates)
-            .put("acceleration", LiteRTBench.run())
+            .put("acceleration", LiteRTBench.run(modelFile))
             .put("arcore", JSONObject()
                 .put("available", arcore)
                 .put("depth", "unavailable")

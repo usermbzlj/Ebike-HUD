@@ -44,6 +44,8 @@ def test_synth_train_and_damping_ab(tmp_path: Path):
     bundle = write_training_bundle(tmp_path / "train")
     assert (tmp_path / "train" / "splits.json").exists()
     assert bundle["split"]["isolation"] == "session_date_route"
+    assert "tflite" in bundle
+    assert "ok" in bundle["tflite"]
     a = record_simulated_session(tmp_path / "a", sim_cfg=SimConfig(width=240, height=136, fps=10, duration_s=0.5))
     b = record_simulated_session(tmp_path / "b", sim_cfg=SimConfig(width=240, height=136, fps=10, duration_s=0.5))
     ab = damping_ab_report(a, b)

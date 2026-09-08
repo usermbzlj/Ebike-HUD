@@ -21,6 +21,7 @@ import com.ebike.rpar.model.RunMode
 import com.ebike.rpar.model.StabilizationMode
 import com.ebike.rpar.model.UiMode
 import com.ebike.rpar.perception.ModelManager
+import com.ebike.rpar.recorder.EventClipBuffer
 import com.ebike.rpar.recorder.SessionWriter
 import com.ebike.rpar.sensor.SensorHub
 import com.ebike.rpar.sync.FrameSynchronizer
@@ -83,6 +84,7 @@ class RparRuntime(private val app: android.app.Application) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
     private var writer: SessionWriter? = null
+    private var clips: EventClipBuffer? = null
     private var sessionStart = 0L
     private val _ui = MutableStateFlow(loadInitial())
     val ui = _ui.asStateFlow()
@@ -225,6 +227,7 @@ class RparRuntime(private val app: android.app.Application) {
             modelPackages = listOf(pipeline.modelVersion),
             startNs = sessionStart,
         )
+        clips = EventClipBuffer(File(root, "events/clips"))
         sensors.start()
         if (useCam) {
             val recDir = if (_ui.value.runMode != RunMode.SAFE_MODE && !light) File(root, "video") else null
@@ -256,6 +259,7 @@ class RparRuntime(private val app: android.app.Application) {
         sensors.stop()
         writer?.finalize(SystemClock.elapsedRealtimeNanos())
         writer = null
+        clips = null
         app.stopService(Intent(app, CaptureService::class.java))
     }
 
@@ -325,7 +329,12 @@ class RparRuntime(private val app: android.app.Application) {
             .put("rotation_vector", JSONObject().put("actual_hz", sensors.rvHz).put("status", "probed"))
             .put("high_sampling_rate_permission", "declared")
             .put("intervals", sensors.intervalJson())
-        val report = probe.run(combo, sensorsJson, voice.ready)
+        val report = probe.run(
+            combo,
+            sensorsJson,
+            voice.ready,
+            File(app.filesDir, "models/${pipeline.modelVersion}/model.tflite").takeIf { it.exists() },
+        )
         val f = probe.write(report)
         val text = f.readText()
         _ui.value = _ui.value.copy(capabilityJson = text)
@@ -377,7 +386,11 @@ class RparRuntime(private val app: android.app.Application) {
                 pipeline.thermalC = sensors.thermalC
                 pipeline.recSeconds = (SystemClock.elapsedRealtime() - recStartElapsed) / 1000.0
                 val view = pipeline.step(frame, _ui.value.uiMode)
-                view.alerts.filter { it.fired }.forEach { voice.speak(it.phrase) }
+                clips?.push(frame.meta.sensorTimestampNs, frame.bitmap)
+                view.alerts.filter { it.fired }.forEach {
+                    voice.speak(it.phrase)
+                    clips?.onAlert(it.trackId, it.phrase)
+                }
                 if (_ui.value.dampingArm != null) {
                     dampingBlur += view.blur
                     val g = sensors.gyro.peekLast()
@@ -391,17 +404,13 @@ class RparRuntime(private val app: android.app.Application) {
                         stopCapture()
                         return@withLock
                     }
-                    val imu = listOfNotNull(
-                        sensors.gyro.peekLast(),
-                        sensors.accel.peekLast(),
-                        sensors.rv.peekLast(),
-                    )
+                    val imu = sensors.drainPending()
                     w.append(
                         meta = frame.meta,
                         imu = imu,
                         location = frame.location,
                         observations = null,
-                        tracks = if (_ui.value.runMode == RunMode.REALTIME_PERCEPTION_FULL_LOG) view.tracks else emptyList(),
+                        tracks = view.tracks,
                         alerts = view.alerts,
                         diagnostics = diagnostics.drain(),
                         runtime = JSONObject()
@@ -414,6 +423,7 @@ class RparRuntime(private val app: android.app.Application) {
                             .put("using_test_pattern", _ui.value.usingTestPattern)
                             .put("privacy_mode", privacy.wire),
                     )
+                    w.writeOverlay(frame.meta.sensorTimestampNs, view.primitives)
                 }
                 val sound = if (_ui.value.alertsEnabled) "声音提醒" else "静音"
                 _ui.value = _ui.value.copy(

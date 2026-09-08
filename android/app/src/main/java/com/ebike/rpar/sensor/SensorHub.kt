@@ -32,6 +32,7 @@ class SensorHub(
     val accel = ConcurrentLinkedDeque<ImuSample>()
     val rv = ConcurrentLinkedDeque<ImuSample>()
     val poses = ConcurrentLinkedDeque<PoseSample>()
+    private val pending = ConcurrentLinkedDeque<ImuSample>()
     @Volatile var lastLocation: LocationSample? = null
     @Volatile var batteryPct: Int = -1
     @Volatile var charging: Boolean = false
@@ -86,8 +87,8 @@ class SensorHub(
 
     override fun onSensorChanged(event: SensorEvent) {
         val ts = event.timestamp
-        unifyAndPush(event, ts)
         detectStall(event.sensor.type, ts)
+        unifyAndPush(event, ts)
         val now = SystemClock.elapsedRealtimeNanos()
         if (now - rateWindowNs > 1_000_000_000L) {
             val dt = (now - rateWindowNs) / 1e9
@@ -129,7 +130,18 @@ class SensorHub(
 
     private fun push(q: ConcurrentLinkedDeque<ImuSample>, s: ImuSample) {
         q.addLast(s)
+        pending.addLast(s)
         while (q.size > 800) q.pollFirst()
+        while (pending.size > 4000) pending.pollFirst()
+    }
+
+    fun drainPending(): List<ImuSample> {
+        val out = ArrayList<ImuSample>(64)
+        while (true) {
+            val s = pending.pollFirst() ?: break
+            out += s
+        }
+        return out
     }
 
     private fun detectStall(type: Int, ts: Long) {

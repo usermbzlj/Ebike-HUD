@@ -25,6 +25,7 @@ Debug 构建使用 Android 默认 debug 密钥，仅供开发安装。场测 APK
 - M3：手机实时 MVP（启发式后端）、骑行/研究 UI、模型管理与安全模式
 - M4 策略代码已落地（高阈值提醒、冷却、决策快照）；10 h 误报统计仍需实路
 - 骑行模式开始后自动触摸锁；存储不足改无视频轻量记录；研究模式走廊/双尺度 ROI/热图；回放 IMU 波形与对象点选；CVAT/主动学习/减震 A/B
+- 会话始终写入全速率 IMU；LiteRT Interpreter 作为 sidecar（占位 tflite 失败则保持启发式）；语音提醒前后 JPEG 事件片段与 overlay JSONL
 
 ## 安装
 

@@ -46,7 +46,8 @@
   },
   "sha256": {
     "labels.json": "16f4c7240479ed5d079dfd7f993296b793a2472bd9b1b5654ce4f8916fde45bc",
-    "model.tflite": "5a2523e5308238df84bca19ddbca0384ad81e7e83d56388dbdbb4eabd35c974e",
-    "MODEL_CARD.md": "ffe5211c21edac4f9bf5962cc36d8f938747b2cab56a626f788ae90f72c9c895"
-  }
+    "model.tflite": "b13e66e65ca973e2ab0b1a3b99db05a749116a760e81a12c8fdb72acf0bbbdb9",
+    "MODEL_CARD.md": "7abf3496bf37555942eae89ff5cf69973652ccbbcc8fba52c19b25fc475cebcb"
+  },
+  "tflite_role": "sidecar_linear_scorer"
 }

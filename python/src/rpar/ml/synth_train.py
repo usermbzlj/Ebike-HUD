@@ -65,7 +65,33 @@ def train_dual_scale_linear(
     }
 
 
-def write_training_bundle(out_dir: Path, sessions: list[str] | None = None, seed: int = 7) -> dict[str, Any]:
+def try_export_tflite(weights: dict[str, Any], out_path: Path) -> dict[str, Any]:
+    """Export a dual-scale linear scorer to TFLite when TensorFlow is installed (ML-002)."""
+    try:
+        import tensorflow as tf  # type: ignore
+    except Exception as exc:  # pragma: no cover - optional extra
+        return {"ok": False, "reason": f"tensorflow_unavailable:{exc.__class__.__name__}"}
+    w = np.asarray(weights["weights"]["FP32"], dtype=np.float32)
+    n_in = int(w.shape[0] - 1)
+    inp = tf.keras.Input(shape=(n_in,), name="far_near_features")
+    kernel = tf.constant(w[:-1].reshape(n_in, 1))
+    bias = tf.constant(w[-1:])
+    logits = tf.keras.layers.Lambda(lambda x: tf.matmul(x, kernel) + bias, name="linear")(inp)
+    model = tf.keras.Model(inp, logits, name="dual_scale_linear")
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    converter.optimizations = []
+    tflite = converter.convert()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(bytes(tflite))
+    return {"ok": True, "path": str(out_path), "bytes": len(tflite), "input": n_in}
+
+
+def write_training_bundle(
+    out_dir: Path,
+    sessions: list[str] | None = None,
+    seed: int = 7,
+    export_tflite: bool = False,
+) -> dict[str, Any]:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     ids = sessions or ["session_day_a", "session_night_b", "session_wet_c", "session_holdout_d"]
@@ -87,4 +113,10 @@ def write_training_bundle(out_dir: Path, sessions: list[str] | None = None, seed
         "INT8": {"train_acc": model["train_acc"], "dtype": "int8", "scale": model["weights"]["INT8"]["scale"]},
     }
     (out_dir / "precision_cards.json").write_text(json.dumps(cards, indent=2), encoding="utf-8")
-    return {"split": split.to_dict(), "model": model, "precision_cards": cards}
+    tflite_info = (
+        try_export_tflite(model, out_dir / "model.tflite")
+        if export_tflite
+        else {"ok": False, "reason": "skipped"}
+    )
+    (out_dir / "tflite_export.json").write_text(json.dumps(tflite_info, indent=2), encoding="utf-8")
+    return {"split": split.to_dict(), "model": model, "precision_cards": cards, "tflite": tflite_info}

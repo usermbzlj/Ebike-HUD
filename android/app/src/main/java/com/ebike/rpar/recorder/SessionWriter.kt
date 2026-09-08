@@ -9,10 +9,12 @@ import com.ebike.rpar.model.ImuSample
 import com.ebike.rpar.model.LocationSample
 import com.ebike.rpar.model.MountProfile
 import com.ebike.rpar.model.PrivacyMode
+import com.ebike.rpar.model.RenderPrimitive
 import com.ebike.rpar.model.RoadObservation
 import com.ebike.rpar.model.RunMode
 import com.ebike.rpar.model.SCHEMA_VERSION
 import com.ebike.rpar.model.TrackedRoadObject
+import com.ebike.rpar.model.polygonToJson
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -43,7 +45,7 @@ class SessionWriter(
         listOf(
             root, File(root, "calibration"), File(root, "video"), File(root, "camera"),
             File(root, "imu"), File(root, "location"), File(root, "perception"),
-            File(root, "events"), File(root, "diagnostics"),
+            File(root, "events"), File(root, "events/clips"), File(root, "diagnostics"),
         ).forEach { it.mkdirs() }
         File(root, "calibration/mount_profile.json").writeText(mount.toJson().toString(2))
         listOf(
@@ -73,22 +75,40 @@ class SessionWriter(
     ) {
         if (closed) return
         appendLine("camera/frame_metadata.jsonl", meta.toJson())
-        if (fullLog) {
-            imu.forEach { s ->
-                val name = when (s.sensorType.wire) {
-                    "ACCEL" -> "imu/accelerometer.jsonl"
-                    "ROTATION_VECTOR" -> "imu/rotation_vector.jsonl"
-                    else -> "imu/gyro.jsonl"
-                }
-                appendLine(name, s.toJson())
+        imu.forEach { s ->
+            val name = when (s.sensorType.wire) {
+                "ACCEL" -> "imu/accelerometer.jsonl"
+                "ROTATION_VECTOR" -> "imu/rotation_vector.jsonl"
+                else -> "imu/gyro.jsonl"
             }
-            if (location != null) appendLine("location/location.jsonl", location.toJson(includePrecise = true))
+            appendLine(name, s.toJson())
+        }
+        if (location != null) appendLine("location/location.jsonl", location.toJson(includePrecise = true))
+        if (fullLog) {
             observations?.forEach { appendLine("perception/observations.jsonl", it.toJson()) }
         }
         tracks?.forEach { appendLine("perception/tracks.jsonl", it.toJson()) }
         alerts?.forEach { appendLine("events/alerts.jsonl", it.toJson()) }
         diagnostics.forEach { appendLine("diagnostics/events.jsonl", it.toJson()) }
         if (runtime != null) appendLine("diagnostics/runtime.jsonl", runtime)
+    }
+
+    fun writeOverlay(timestampNs: Long, primitives: List<RenderPrimitive>) {
+        if (closed) return
+        val a = JSONArray()
+        primitives.forEach { p ->
+            a.put(
+                JSONObject()
+                    .put("track_id", p.trackId)
+                    .put("kind", p.kind)
+                    .put("label", p.label)
+                    .put("polygon", polygonToJson(p.polygon)),
+            )
+        }
+        appendLine(
+            "video/overlay_preview.jsonl",
+            JSONObject().put("timestamp_ns", timestampNs).put("n", primitives.size).put("primitives", a),
+        )
     }
 
     fun remainingHours(bitrateMbps: Double = cfg.camera.bitrateMbps): Double {
@@ -175,6 +195,8 @@ class SessionWriter(
             "location jsonl (precise coordinates, local only)",
             "perception observations + tracks jsonl",
             "events/alerts.jsonl (decision snapshots)",
+            "events/clips (JPEG ring around voice alerts)",
+            "video/overlay_preview.jsonl (AR primitives)",
             "diagnostics/runtime.jsonl + events.jsonl",
             "calibration/mount_profile.json",
             "manifest.json + checksums.sha256",

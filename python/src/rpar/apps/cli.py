@@ -102,6 +102,7 @@ def main(argv: list[str] | None = None) -> int:
 
     tr = sub.add_parser("train-synth", help="session-isolated linear trainer + precision cards")
     tr.add_argument("--out", default="artifacts/train_synth")
+    tr.add_argument("--export-tflite", action="store_true", help="write a real TFLite graph when TensorFlow is installed")
 
     args = p.parse_args(argv)
     if args.cmd == "serve":
@@ -187,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(write_damping_ab(Path(args.session_a), Path(args.session_b), Path(args.out)), indent=2))
         return 0
     if args.cmd == "train-synth":
-        print(json.dumps(write_training_bundle(Path(args.out)), indent=2)[:2000])
+        print(json.dumps(write_training_bundle(Path(args.out), export_tflite=args.export_tflite), indent=2)[:2000])
         return 0
     return 1
 

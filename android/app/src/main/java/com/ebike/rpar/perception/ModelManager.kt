@@ -90,13 +90,11 @@ class ModelManager(private val context: Context, private val cfg: RparConfig) {
                 }
             }
             val engine = manifest.optString("engine", "heuristic")
-            val modelFile = dir?.listFiles()?.firstOrNull { it.name.endsWith(".tflite") || it.name.endsWith(".bin") }
-            if (engine == "heuristic" || engine == "heuristic-cv") return HeuristicEngine(cfg)
             if (engine == "oracle") return NoOpEngine()
-            if (modelFile != null) {
-                Log.i(TAG, "LiteRT present but not wired; heuristic fallback")
-                return HeuristicEngine(cfg)
-            }
+            val modelFile = dir?.listFiles()?.firstOrNull { it.name.endsWith(".tflite") || it.name.endsWith(".bin") }
+            val heuristic = HeuristicEngine(cfg)
+            val litert = if (modelFile != null) LiteRtEngine.tryLoad(cfg, modelFile) else null
+            return if (litert != null) HybridEngine(heuristic, litert) else heuristic
         }
         return HeuristicEngine(cfg)
     }
