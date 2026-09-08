@@ -32,7 +32,7 @@ Debug 构建使用 Android 默认 debug 密钥，仅供开发安装。场测 APK
 - 黄金回归补充可行动区召回与虚警实线计数；镜头水滴仿真；IMU 冲击窗不进提醒
 - `rpar field-video` 编目并跑 `Video/` 实拍片段（规格 25007/25013 按时长对齐）；mp4 不入库
 - 桌面 YOLOPv2 ONNX sidecar：可行驶区域 + 车辆遮挡，与启发式混合；权重不入库
-- 公开路面病害类别必须映射到规格属性，禁止把井盖/裂缝拼进 pothole；裂缝与普通井盖默认不提醒
+- 手机可将 YOLOPv2 教师蒸馏的 `roadseg-field-0.1.0` JSON 双尺度头作为道路/遮挡 sidecar；异常仍走启发式，空 sidecar 不空白 HUD
 - 骑行模式开始后自动触摸锁；存储不足改无视频轻量记录；研究模式走廊/双尺度 ROI/热图；回放 IMU 波形与对象点选；CVAT/主动学习/减震 A/B
 - 会话始终写入全速率 IMU；LiteRT Interpreter 作为 sidecar（占位 tflite 失败则保持启发式）；语音提醒前后 JPEG 事件片段与 overlay JSONL
 - FULL_LOG 写入原始观测与质量调度原因；5/10/20 m 标定点拟合俯仰/高度；未标定隐藏米数；热降级写 reason code；夜间/湿路黄金切片；研究模式暂停/截图/事件标记

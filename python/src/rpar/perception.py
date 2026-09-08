@@ -760,9 +760,19 @@ def load_field_engine(
     if not prefer_yolop:
         return heuristic
     from rpar.ml.yolopv2 import Yolopv2Engine, weights_available
-    from rpar.segengine import HybridPerceptionEngine
+    from rpar.segengine import DualScaleSegEngine, HybridPerceptionEngine
 
     path = Path(weights) if weights else None
-    if not weights_available(path):
-        return heuristic
-    return HybridPerceptionEngine(heuristic, Yolopv2Engine(path))
+    if weights_available(path):
+        return HybridPerceptionEngine(heuristic, Yolopv2Engine(path))
+    for parent in [Path(__file__).resolve(), *Path(__file__).resolve().parents]:
+        cand = parent / "models" / "roadseg-field-0.1.0" / "seg_weights.json"
+        if cand.is_file():
+            import json
+
+            meta = json.loads(cand.read_text(encoding="utf-8"))
+            w = meta.get("weights")
+            if w:
+                return HybridPerceptionEngine(heuristic, DualScaleSegEngine(np.asarray(w)))
+            break
+    return heuristic

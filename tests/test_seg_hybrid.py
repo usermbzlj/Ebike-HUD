@@ -194,6 +194,23 @@ def test_precision_cards_have_int8():
     assert cards["cards"]["FP32"]["road_iou"] >= 0.0
 
 
+def test_field_json_weights_run_without_onnx():
+    from pathlib import Path
+
+    wp = Path("models/roadseg-field-0.1.0/seg_weights.json")
+    if not wp.is_file():
+        return
+    import json
+
+    meta = json.loads(wp.read_text(encoding="utf-8"))
+    engine = DualScaleSegEngine(meta["weights"])
+    sim = RoadSimulator(SimConfig(width=320, height=180, fps=10, duration_s=0.3, blur_windows=[]))
+    frame, _ = sim.frame_at(0)
+    out = engine.infer(frame)
+    assert out.dual_scale is True
+    assert list(out.input_sizes) == [(96, 48), (96, 48)]
+
+
 def test_optical_flow_helps_match():
     cfg = load_config().tracking
     te = TrackEngine(cfg)

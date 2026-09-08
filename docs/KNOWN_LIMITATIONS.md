@@ -36,6 +36,8 @@
 
 公开路面病害数据（摩托视角坑、远距小坑、井盖、夜间驾驶分割等）只作预训练/教师/hard negative 参考，不能替代 PKC110 自采 session，也不能直接拼成一个检测类别表。见 `docs/DATASETS.md`。
 
+手机可将 `models/roadseg-field-0.1.0/seg_weights.json` 作为双尺度道路/遮挡 sidecar（YOLOPv2 教师蒸馏，不是坑洞网）。无该文件时保持启发式道路兜底。
+
 ## 主要风险（摘自规格第 13 章）
 
 | 风险 | 缓解 |

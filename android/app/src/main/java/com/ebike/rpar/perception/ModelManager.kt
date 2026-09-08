@@ -89,14 +89,22 @@ class ModelManager(private val context: Context, private val cfg: RparConfig) {
                     }
                 }
             }
-            val engine = manifest.optString("engine", "heuristic")
-            if (engine == "oracle") return NoOpEngine()
-            val modelFile = dir?.listFiles()?.firstOrNull { it.name.endsWith(".tflite") || it.name.endsWith(".bin") }
+            if (manifest.optString("engine", "heuristic") == "oracle") return NoOpEngine()
             val heuristic = HeuristicEngine(cfg)
-            val litert = if (modelFile != null) LiteRtEngine.tryLoad(cfg, modelFile) else null
-            return if (litert != null) HybridEngine(heuristic, litert) else heuristic
+            val json = listOf(dir, resolvePackageDir("roadseg-field-0.1.0"))
+                .mapNotNull { d -> d?.let { JsonClassmapEngine.tryLoad(File(it, "seg_weights.json")) } }
+                .firstOrNull()
+            val litert = sidecarTflite(dir)
+            val sidecar = json ?: litert
+            return if (sidecar != null) HybridEngine(heuristic, sidecar) else heuristic
         }
         return HeuristicEngine(cfg)
+    }
+
+    private fun sidecarTflite(dir: File?): PerceptionEngine? {
+        if (dir == null) return null
+        val modelFile = dir.listFiles()?.firstOrNull { it.name.endsWith(".tflite") || it.name.endsWith(".bin") }
+        return if (modelFile != null) LiteRtEngine.tryLoad(cfg, modelFile) else null
     }
 
     private fun readManifest(dir: File?): JSONObject? {

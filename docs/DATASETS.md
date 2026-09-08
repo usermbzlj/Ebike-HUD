@@ -6,7 +6,7 @@
 
 | 层 | 现在 | 以后 |
 | --- | --- | --- |
-| 可行驶道路 + 车辆遮挡 | 桌面 YOLOPv2 sidecar；启发式道路只是兜底 | 手机双尺度 classmap / PIDNet 类学生模型 |
+| 可行驶道路 + 车辆遮挡 | 桌面 YOLOPv2 sidecar；启发式道路只是兜底 | 手机 `roadseg-field-0.1.0` JSON 双尺度头（教师蒸馏）；PIDNet 类学生仍待实机 |
 | 路面异常实例 | 启发式，夜间关闭纹理类；未确认不画 | 许可友好的实例分割学生（如 RTMDet-Ins-tiny），不要把 Ultralytics AGPL 当成唯一路线 |
 | 跟踪 / 距离 / TTC | IMU + 路平面 + 走廊 | 教师深度只做离线辅助，不在手机常驻 |
 | 声音 | 比画面严格得多 | hard negative 质量比再堆坑样本更重要 |

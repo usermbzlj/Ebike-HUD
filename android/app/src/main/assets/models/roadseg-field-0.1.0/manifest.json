@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "package_id": "roadseg-field-0.1.0",
+  "engine": "classmap",
+  "files": {
+    "seg_weights.json": "seg_weights.json",
+    "labels.json": "labels.json"
+  },
+  "input_spec": {
+    "far": {
+      "width": 96,
+      "height": 48,
+      "layout": "RGB+xy",
+      "norm": "unit"
+    },
+    "near": {
+      "width": 96,
+      "height": 48,
+      "layout": "RGB+xy",
+      "norm": "unit"
+    },
+    "note": "Dual-scale ROI head; not a single 640x640 full-frame."
+  },
+  "quantization": "lstsq-json",
+  "compatible_app": ">=0.1.0",
+  "labels": {
+    "semantic_type": [
+      "pothole",
+      "manhole_cover",
+      "speed_bump",
+      "road_joint",
+      "repair_patch",
+      "rough_broken",
+      "puddle",
+      "gravel",
+      "unknown_anomaly"
+    ],
+    "geometry_type": [
+      "concave",
+      "convex",
+      "rough",
+      "step",
+      "flat",
+      "unknown"
+    ]
+  },
+  "sha256": {
+    "labels.json": "16f4c7240479ed5d079dfd7f993296b793a2472bd9b1b5654ce4f8916fde45bc",
+    "MODEL_CARD.md": "12941cfc69b47aafe7c5e458954ec3e96c75c7b7da936e4af57a91dc9faafa0d",
+    "seg_weights.json": "cdf438a79036459c06882c740b517f40d3a76bc7926c27f86d1ef16bf99a98f0"
+  }
+}

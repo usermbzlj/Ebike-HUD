@@ -121,12 +121,51 @@ def distill_from_videos(
             "note": "Dual-scale lstsq on YOLOPv2 teacher masks from local Video/. Not PKC110 GT.",
         }
         (out_dir / "seg_weights.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        (out_dir / "MODEL_CARD.md").write_text(
-            "# roadseg-field-0.1.0\n\n"
-            "Dual-scale classmap distilled from YOLOPv2 teacher masks on local `Video/` clips. "
-            "Road + vehicle occlusion only. Not a pothole detector and not Camera2 1080p60 GT.\n",
-            encoding="utf-8",
-        )
+        write_field_package(out_dir, None)
         return {"ok": True, **{k: v for k, v in payload.items() if k != "weights"}, "package": str(out_dir)}
     finally:
         engine.close()
+
+
+def write_field_package(out_dir: Path, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Write manifest/labels/sha256 around existing seg_weights.json (no TFLite required)."""
+    import hashlib
+
+    from rpar.ml.train import write_model_package
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    weights_path = out_dir / "seg_weights.json"
+    if payload is not None:
+        weights_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    if not weights_path.is_file():
+        return {"ok": False, "reason": "missing seg_weights.json"}
+    write_model_package(out_dir, "roadseg-field-0.1.0", engine="classmap")
+    labels = json.loads((out_dir / "labels.json").read_text(encoding="utf-8"))
+    (out_dir / "MODEL_CARD.md").write_text(
+        "# roadseg-field-0.1.0\n\n"
+        "Dual-scale classmap distilled from YOLOPv2 teacher masks on local `Video/` clips. "
+        "Road + vehicle occlusion only. Not a pothole detector and not Camera2 1080p60 GT.\n",
+        encoding="utf-8",
+    )
+    tflite = out_dir / "model.tflite"
+    if tflite.is_file() and tflite.stat().st_size < 200:
+        tflite.unlink()
+    man_path = out_dir / "manifest.json"
+    man = json.loads(man_path.read_text(encoding="utf-8"))
+    man["engine"] = "classmap"
+    man["package_id"] = "roadseg-field-0.1.0"
+    man["quantization"] = "lstsq-json"
+    man["files"] = {"seg_weights.json": "seg_weights.json", "labels.json": "labels.json"}
+    man["labels"] = labels
+    man["input_spec"] = {
+        "far": {"width": 96, "height": 48, "layout": "RGB+xy", "norm": "unit"},
+        "near": {"width": 96, "height": 48, "layout": "RGB+xy", "norm": "unit"},
+        "note": "Dual-scale ROI head; not a single 640x640 full-frame.",
+    }
+    man["sha256"] = {}
+    for p in out_dir.iterdir():
+        if p.is_file() and p.name not in {"manifest.json", "student_preview.jpg"}:
+            man["sha256"][p.name] = hashlib.sha256(p.read_bytes()).hexdigest()
+    man_path.write_text(json.dumps(man, indent=2), encoding="utf-8")
+    return {"ok": True, "package": str(out_dir), "files": sorted(man["sha256"].keys())}

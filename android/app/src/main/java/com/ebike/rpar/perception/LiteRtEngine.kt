@@ -22,21 +22,26 @@ import java.nio.ByteOrder
  */
 class HybridEngine(
     private val primary: PerceptionEngine,
-    private val litert: LiteRtEngine?,
+    private val sidecar: PerceptionEngine?,
 ) : PerceptionEngine {
     override fun capability(): Map<String, Any> {
         val cap = HashMap(primary.capability())
-        cap["litert_sidecar"] = litert != null
-        if (litert != null) cap.putAll(litert.capability())
+        cap["hybrid"] = sidecar != null
+        cap["litert_sidecar"] = sidecar is LiteRtEngine
+        if (sidecar != null) cap.putAll(sidecar.capability())
         return cap
     }
 
     override suspend fun infer(frame: SynchronizedFrame, quality: FrameQualityMap?): PerceptionResult {
         val h = primary.infer(frame, quality)
-        val t = litert ?: return h
+        val t = sidecar ?: return h
         return try {
             val probe = t.infer(frame, quality)
-            merge(h, probe, t.lastScore)
+            if (probe.roadPolygon.size < 3 && probe.observations.isEmpty() && probe.occludedPolygons.isEmpty()) {
+                return h
+            }
+            val score = (t as? LiteRtEngine)?.lastScore
+            merge(h, probe, score)
         } catch (_: Throwable) {
             h
         }
@@ -44,7 +49,7 @@ class HybridEngine(
 
     override fun close() {
         primary.close()
-        litert?.close()
+        sidecar?.close()
     }
 
     companion object {
