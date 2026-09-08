@@ -7,4 +7,5 @@
     <string name="emergency_stop">紧急停止</string>
     <string name="notif_channel">采集服务</string>
     <string name="notif_title">Road Perception AR 正在采集</string>
+    <string name="notif_body">后台采集中。须自行观察道路。本通知不表示路面安全。LOCAL_ONLY</string>
 </resources>

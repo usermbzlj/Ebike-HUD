@@ -103,12 +103,17 @@ data class ImuSample(
     val accuracy: Int,
     val sourceRateHz: Double,
 ) {
-    fun toJson(): JSONObject = JSONObject()
-        .put("timestamp_ns", timestampNs)
-        .put("sensor_type", sensorType.wire)
-        .put("x", x).put("y", y).put("z", z)
-        .put("accuracy", accuracy)
-        .put("source_rate_hz", sourceRateHz)
+    fun toJson(): JSONObject {
+        val o = JSONObject()
+        o.put("timestamp_ns", timestampNs)
+        o.put("sensor_type", sensorType.wire)
+        o.put("x", x)
+        o.put("y", y)
+        o.put("z", z)
+        o.put("accuracy", accuracy)
+        o.put("source_rate_hz", sourceRateHz)
+        return o
+    }
 }
 
 data class LocationSample(

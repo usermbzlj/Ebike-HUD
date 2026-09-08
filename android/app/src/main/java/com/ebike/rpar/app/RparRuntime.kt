@@ -215,6 +215,7 @@ class RparRuntime(private val app: android.app.Application) {
 
     fun emergencyStop(source: String = "user") {
         val line = if (source == "imu_crash") "疑似碰撞/剧烈振动，已停止采集，停车后确认" else "紧急停止"
+        clips?.onAlert(-1, "emergency:$source")
         _ui.value = _ui.value.copy(emergency = true, touchLocked = false, statusLine = line, emergencyReason = source)
         stopCapture()
         diagnostics.event("APP", "emergency_stop", source)

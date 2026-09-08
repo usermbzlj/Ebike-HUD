@@ -313,6 +313,14 @@ def verify_session(root: Path) -> dict[str, Any]:
             if line.strip():
                 ts.append(json.loads(line).get("sensor_timestamp_ns") or json.loads(line).get("sensor_timestamp_ns", 0))
         report["camera_interval"] = percentile_intervals_ms([int(t) for t in ts if t])
+    accel = root / "imu" / "accelerometer.jsonl"
+    if accel.exists():
+        from rpar.crash import scan_accel_jsonl
+
+        crash = scan_accel_jsonl(accel)
+        report["cam012_crash_scan"] = crash
+        if crash.get("n_hits"):
+            report["warnings"].append(f"CAM-012 residual hits={crash['n_hits']}")
     return report
 
 

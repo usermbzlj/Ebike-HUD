@@ -30,7 +30,7 @@ class CaptureService : Service() {
         )
         val notif: Notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle(getString(R.string.notif_title))
-            .setContentText("LOCAL_ONLY")
+            .setContentText(getString(R.string.notif_body))
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(pi)
             .setOngoing(true)
