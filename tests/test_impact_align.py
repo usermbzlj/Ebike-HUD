@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from rpar.field_video import m2_clip_gates, m2_field_report
 from rpar.impact import (
     align_tracks_to_future_impact,
@@ -72,6 +74,20 @@ def test_synthetic_pass_imu_separates_relief_from_patch():
 def test_harvest_windows_still_never_alert():
     rows = harvest_impact_windows([{"timestamp_ns": 2, "z": 9.81 + 8.0}], near_track_ids=[7])
     assert rows[0]["used_for_alert"] is False
+
+
+def test_recorded_session_writes_impact_align(tmp_path):
+    from rpar.capture import record_simulated_session
+    from rpar.session import verify_session
+    from rpar.simulator import SimConfig
+
+    root = record_simulated_session(
+        tmp_path,
+        sim_cfg=SimConfig(width=320, height=180, fps=10, duration_s=1.0, blur_windows=[]),
+    )
+    payload = json.loads((root / "perception" / "impact_align.json").read_text(encoding="utf-8"))
+    assert payload["used_for_alert"] is False
+    assert verify_session(root)["ok"] is True
 
 
 def test_m2_night_gate_rejects_rough_broken_storm():

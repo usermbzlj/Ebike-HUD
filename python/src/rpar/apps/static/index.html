@@ -330,7 +330,7 @@
         return;
       }
       const r = await fetch("/api/field-video?max_frames=90", {method:"POST"}).then(x => x.json());
-      $("repPre").textContent = JSON.stringify({n_ok: r.n_ok, prefer_yolop: r.prefer_yolop, clips: (r.results||[]).map(c => ({alias: c.alias, lighting: c.lighting, duration_s: c.duration_s, frames: c.run && c.run.frames, hybrid: c.run && c.run.hybrid, engine: c.run && c.run.engine, tracks: c.run && c.run.n_unique_tracks, alerts: c.run && c.run.n_alerts_fired}))}, null, 2);
+      $("repPre").textContent = JSON.stringify({n_ok: r.n_ok, prefer_yolop: r.prefer_yolop, m2: r.m2, clips: (r.results||[]).map(c => ({alias: c.alias, lighting: c.lighting, duration_s: c.duration_s, frames: c.run && c.run.frames, hybrid: c.run && c.run.hybrid, engine: c.run && c.run.engine, tracks: c.run && c.run.n_unique_tracks, confirmed: c.run && c.run.n_confirmed_tracks, alerts: c.run && c.run.n_alerts_fired, road: c.run && c.run.road_frame_share}))}, null, 2);
       const box = $("fieldStills");
       box.innerHTML = "";
       (r.results || []).forEach(c => {
@@ -344,7 +344,7 @@
           box.appendChild(img);
         });
       });
-      $("repStatus").textContent = "实拍 " + (r.n_ok||0) + "/" + ((r.results||[]).length) + " 段已跑完（绿=可行驶，橙=车辆遮挡）";
+      $("repStatus").textContent = "实拍 " + (r.n_ok||0) + "/" + ((r.results||[]).length) + " 段；M2 " + ((r.m2 && r.m2.pass) ? "通过" : "未过") + "（绿=可行驶，橙=车辆遮挡）";
     };
     $("btnOffset").onclick = async () => {
       const r = await fetch("/api/replay/offset").then(x => x.json());

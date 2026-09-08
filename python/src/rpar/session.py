@@ -235,6 +235,22 @@ class SessionWriter:
         (self.root / "diagnostics" / "imu_intervals.json").write_text(
             json.dumps(intervals, indent=2), encoding="utf-8"
         )
+        try:
+            from rpar.impact import align_session_impact
+
+            impact = align_session_impact(self.root)
+            slim = {k: v for k, v in impact.items() if k != "rows" or impact.get("n_aligned", 0) <= 64}
+            if impact.get("n_aligned", 0) > 64:
+                slim["rows"] = (impact.get("rows") or [])[:64]
+                slim["rows_truncated"] = True
+            (self.root / "perception" / "impact_align.json").write_text(
+                json.dumps(slim, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+        except Exception as exc:
+            (self.root / "perception" / "impact_align.json").write_text(
+                json.dumps({"used_for_alert": False, "error": str(exc)[:200]}, indent=2),
+                encoding="utf-8",
+            )
         self._write_manifest()
         write_checksums(self.root)
         self._closed = True

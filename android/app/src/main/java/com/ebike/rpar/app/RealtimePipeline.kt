@@ -25,7 +25,9 @@ import com.ebike.rpar.perception.NoOpEngine
 import com.ebike.rpar.perception.PerceptionEngine
 import com.ebike.rpar.quality.GrayImage
 import com.ebike.rpar.quality.QualityScheduler
+import com.ebike.rpar.quality.allowNewObservations
 import com.ebike.rpar.quality.evaluateFrame
+import com.ebike.rpar.quality.occlusionCoverRatio
 import com.ebike.rpar.quality.perceptionStatus
 import com.ebike.rpar.tracking.TrackEngine
 import com.ebike.rpar.tracking.TrackInternal
@@ -158,9 +160,8 @@ class RealtimePipeline(
             }
             lastStatus = status
         }
-        val allowNew = sel.fresh && sel.q.globalQuality.usable && status !in setOf(
-            PerceptionStatus.SEVERE_BLUR, PerceptionStatus.PERCEPTION_LIMITED, PerceptionStatus.LENS_CONTAMINATION,
-        )
+        val occRatio = occlusionCoverRatio(lastOccPolygons, frame.meta.width, frame.meta.height)
+        var allowNew = allowNewObservations(status, sel.q.globalQuality.usable, sel.fresh, occRatio)
         val engineOn = runMode != RunMode.CAPTURE_ONLY && runMode != RunMode.SAFE_MODE
         val doInfer = engineOn && sel.fresh && (t0 - lastInferNs) >= inferPeriodNs
         var observations = emptyList<com.ebike.rpar.model.RoadObservation>()
@@ -185,6 +186,13 @@ class RealtimePipeline(
             lastRoadPolygon = result.roadPolygon
             lastOccPolygons = result.occludedPolygons
             didInfer = true
+            val cover = occlusionCoverRatio(lastOccPolygons, frame.meta.width, frame.meta.height)
+            if (cover >= 0.08) {
+                status = PerceptionStatus.OCCLUDED
+                allowNew = false
+            } else if (status == PerceptionStatus.OCCLUDED) {
+                allowNew = false
+            }
         } else {
             droppedInfer++
             lastObservations = emptyList()

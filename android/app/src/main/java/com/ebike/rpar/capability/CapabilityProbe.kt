@@ -101,8 +101,27 @@ class CapabilityProbe(private val context: Context) {
                     for (fmt in intArrayOf(android.graphics.ImageFormat.YUV_420_888, android.graphics.ImageFormat.PRIVATE, android.graphics.ImageFormat.JPEG)) {
                         val sizes = map.getOutputSizes(fmt) ?: continue
                         val arr = JSONArray()
-                        sizes.take(12).forEach { arr.put("${it.width}x${it.height}") }
-                        val fps = JSONArray().put(30).put(60)
+                        var bestNs = Long.MAX_VALUE
+                        sizes.take(12).forEach { sz ->
+                            arr.put("${sz.width}x${sz.height}")
+                            val d = try {
+                                map.getOutputMinFrameDuration(fmt, sz)
+                            } catch (_: Throwable) {
+                                0L
+                            }
+                            if (d > 0L && d < bestNs) bestNs = d
+                        }
+                        sizes.firstOrNull { it.width == 1920 && it.height == 1080 }?.let { hd ->
+                            val d = try {
+                                map.getOutputMinFrameDuration(fmt, hd)
+                            } catch (_: Throwable) {
+                                0L
+                            }
+                            if (d > 0L) bestNs = d
+                        }
+                        val fpsList = fpsCandidatesFromMinDurationNs(if (bestNs == Long.MAX_VALUE) 0L else bestNs)
+                        val fps = JSONArray()
+                        for (f in fpsList) fps.put(f)
                         outputs.put(JSONObject().put("format", fmtName(fmt)).put("sizes", arr).put("fps", fps))
                     }
                 }

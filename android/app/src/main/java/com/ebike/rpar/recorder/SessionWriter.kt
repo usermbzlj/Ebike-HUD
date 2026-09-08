@@ -154,9 +154,80 @@ class SessionWriter(
 
     fun finalize(endNs: Long) {
         if (closed) return
+        writeImpactAlign()
         writeManifest(endNs)
         writeChecksums()
         closed = true
+    }
+
+    private fun writeImpactAlign() {
+        val trackLines = File(root, "perception/tracks.jsonl")
+        val accelFile = File(root, "imu/accelerometer.jsonl")
+        val locFile = File(root, "location/location.jsonl")
+        val seeds = ArrayList<com.ebike.rpar.model.FutureImpactSeed>()
+        if (trackLines.exists()) {
+            trackLines.readLines().forEach { line ->
+                val s = line.trim()
+                if (s.isEmpty()) return@forEach
+                val o = JSONObject(s)
+                val life = o.optString("lifecycle_state")
+                if (life != "CONFIRMED" && life != "ALERTED") return@forEach
+                val dist = if (o.has("distance_m") && !o.isNull("distance_m")) o.optDouble("distance_m") else null
+                seeds.add(
+                    com.ebike.rpar.model.FutureImpactSeed(
+                        trackId = o.optInt("track_id"),
+                        timestampNs = o.optLong("timestamp_ns"),
+                        lifecycle = life,
+                        geometryType = o.optString("geometry_type", "unknown"),
+                        semanticType = o.optString("semantic_type", "unknown_anomaly"),
+                        distanceM = dist,
+                        speedMps = null,
+                    ),
+                )
+            }
+        }
+        val accel = ArrayList<com.ebike.rpar.model.AccelZ>()
+        if (accelFile.exists()) {
+            accelFile.readLines().forEach { line ->
+                val s = line.trim()
+                if (s.isEmpty()) return@forEach
+                val o = JSONObject(s)
+                accel.add(com.ebike.rpar.model.AccelZ(o.optLong("timestamp_ns"), o.optDouble("z")))
+            }
+        }
+        var speed = 10.0
+        if (locFile.exists()) {
+            val speeds = ArrayList<Double>()
+            locFile.readLines().forEach { line ->
+                val s = line.trim()
+                if (s.isEmpty()) return@forEach
+                val o = JSONObject(s)
+                if (o.has("speed_mps") && !o.isNull("speed_mps")) speeds.add(o.optDouble("speed_mps"))
+            }
+            if (speeds.isNotEmpty()) {
+                speeds.sort()
+                speed = speeds[speeds.size / 2]
+            }
+        }
+        val rows = com.ebike.rpar.model.alignTracksToFutureImpact(seeds, accel, defaultSpeedMps = speed)
+        val out = JSONObject()
+        out.put("used_for_alert", false)
+        out.put("n_aligned", rows.size)
+        out.put("horizon_s", 3.0)
+        out.put("speed_mps", speed)
+        val arr = JSONArray()
+        for (r in rows.take(64)) {
+            val row = JSONObject()
+            row.put("track_id", r.trackId)
+            row.put("peak_ms2", r.peakMs2)
+            row.put("impact_label", r.impactLabel)
+            row.put("used_for_alert", false)
+            row.put("geometry_type", r.geometryType)
+            row.put("semantic_type", r.semanticType)
+            arr.put(row)
+        }
+        out.put("rows", arr)
+        File(root, "perception/impact_align.json").writeText(out.toString(2))
     }
 
     private fun appendLine(rel: String, obj: JSONObject) {
@@ -223,6 +294,7 @@ class SessionWriter(
             "imu gyro / accelerometer / rotation_vector jsonl",
             "location jsonl (precise coordinates, local only)",
             "perception observations + tracks jsonl",
+            "perception/impact_align.json (M5 future IMU, never alerts)",
             "perception/road.jsonl + occlusion.jsonl",
             "events/alerts.jsonl (decision snapshots)",
             "events/clips (JPEG ring around voice alerts)",

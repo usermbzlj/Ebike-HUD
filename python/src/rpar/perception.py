@@ -629,10 +629,11 @@ class ScriptedEvent:
 class OraclePerceptionEngine:
     """Ground-truth observations for isolated tracking / policy tests."""
 
-    def __init__(self, events: list[ScriptedEvent], noise: float = 0.0) -> None:
+    def __init__(self, events: list[ScriptedEvent], noise: float = 0.0, sim: object | None = None) -> None:
         self.events = events
         self.noise = noise
         self.t0: int | None = None
+        self.sim = sim
 
     def capability(self) -> dict:
         return {"backend": InferenceBackend.ORACLE.value, "dual_scale": True}
@@ -674,11 +675,17 @@ class OraclePerceptionEngine:
         for o in obs:
             if o.mask_rle is None:
                 o.mask_rle = mask_rle_from_polygon(o.polygon)
+        occ: list[list[tuple[float, float]]] = []
+        if self.sim is not None and hasattr(self.sim, "classmap_at"):
+            from rpar.segdecode import CLASS_OCC, polygons_for_label
+
+            cm = self.sim.classmap_at(frame.meta.frame_id)
+            occ = polygons_for_label(cm, CLASS_OCC, max(24.0, 0.0004 * frame.meta.width * frame.meta.height))
         return PerceptionResult(
             timestamp_ns=frame.meta.sensor_timestamp_ns,
             source_frame_id=frame.meta.frame_id,
             road_polygon=[],
-            occluded_polygons=[],
+            occluded_polygons=occ,
             observations=obs,
             backend=InferenceBackend.ORACLE,
             latency_ms=0.2,
@@ -707,7 +714,7 @@ def oracle_engine_for_sim(sim: "RoadSimulator") -> OraclePerceptionEngine:
                 polygon_fn=poly_fn,
             )
         )
-    return OraclePerceptionEngine(events, noise=0.6)
+    return OraclePerceptionEngine(events, noise=0.6, sim=sim)
 
 
 def load_engine(cfg: RparConfig, package_dir: Path | None = None) -> PerceptionEngine:

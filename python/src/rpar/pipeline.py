@@ -36,6 +36,41 @@ from rpar.tracking import TrackEngine, TrackInternal
 from rpar import SCHEMA_VERSION
 
 
+def occlusion_cover_ratio(polys: list[list[tuple[float, float]]], width: int, height: int) -> float:
+    """Axis-aligned bbox union proxy for occlusion masks (M2 appendix B)."""
+    if not polys or width < 1 or height < 1:
+        return 0.0
+    area = 0.0
+    for poly in polys:
+        if len(poly) < 3:
+            continue
+        xs = [p[0] for p in poly]
+        ys = [p[1] for p in poly]
+        area += max(0.0, max(xs) - min(xs)) * max(0.0, max(ys) - min(ys))
+    return float(min(1.0, area / float(width * height)))
+
+
+def allow_new_observations(
+    status: PerceptionStatus,
+    *,
+    usable: bool,
+    fresh: bool,
+    occlusion_ratio: float = 0.0,
+    occ_block: float = 0.08,
+) -> bool:
+    """Do not spawn high-confidence tracks in blur/occlusion/lens-drop (spec appendix B M2)."""
+    if not fresh or not usable:
+        return False
+    if occlusion_ratio >= occ_block:
+        return False
+    return status not in {
+        PerceptionStatus.SEVERE_BLUR,
+        PerceptionStatus.PERCEPTION_LIMITED,
+        PerceptionStatus.LENS_CONTAMINATION,
+        PerceptionStatus.OCCLUDED,
+    }
+
+
 def _temporal(tr: TrackInternal, now_ns: int, confirm_s: float) -> float:
     age = (now_ns - tr.created_ns) / 1e9
     stab = min(1.0, tr.hits / 6.0) * min(1.0, age / max(confirm_s, 1e-3))
@@ -204,11 +239,12 @@ class RealtimePipeline:
         self._note_status()
         self.last_quality = sel_q
 
-        allow_new = fresh and sel_q.global_quality.usable and self.status not in {
-            PerceptionStatus.SEVERE_BLUR,
-            PerceptionStatus.PERCEPTION_LIMITED,
-            PerceptionStatus.LENS_CONTAMINATION,
-        }
+        allow_new = allow_new_observations(
+            self.status,
+            usable=sel_q.global_quality.usable,
+            fresh=fresh,
+            occlusion_ratio=occlusion_cover_ratio(self.last_occluded, frame.meta.width, frame.meta.height),
+        )
         do_infer = fresh and (t0 - self._last_infer_ns) >= self._infer_period_ns
         observations = []
         backend = InferenceBackend.HEURISTIC
@@ -228,6 +264,12 @@ class RealtimePipeline:
             self._last_infer_ns = t0
             self.infer_count += 1
             self._infer_times.append(t0)
+            occ_ratio = occlusion_cover_ratio(self.last_occluded, frame.meta.width, frame.meta.height)
+            if occ_ratio >= 0.08:
+                self.status = PerceptionStatus.OCCLUDED
+                allow_new = False
+            elif self.status == PerceptionStatus.OCCLUDED:
+                allow_new = False
         else:
             self.dropped_infer += 1
             self.last_observations = []
