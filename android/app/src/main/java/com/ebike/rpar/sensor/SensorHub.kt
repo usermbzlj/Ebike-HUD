@@ -19,6 +19,8 @@ import com.ebike.rpar.model.ImuSample
 import com.ebike.rpar.model.LocationSample
 import com.ebike.rpar.model.PoseSample
 import com.ebike.rpar.model.SensorType
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.ConcurrentLinkedDeque
 import kotlin.math.abs
 
@@ -50,33 +52,42 @@ class SensorHub(
     private val gyroGapsMs = ArrayList<Double>(512)
     private val accelGapsMs = ArrayList<Double>(512)
     private val rvGapsMs = ArrayList<Double>(512)
+    private val gyroHzWindow = ArrayList<Double>(64)
+    private val accelHzWindow = ArrayList<Double>(64)
+    private val rvHzWindow = ArrayList<Double>(64)
 
-    fun intervalJson(): org.json.JSONObject {
+    fun intervalJson(): JSONObject {
         val g = gyroGapsMs.sorted()
         val a = accelGapsMs.sorted()
         val r = rvGapsMs.sorted()
-        fun pct(s: List<Double>, p: Double): Double {
-            if (s.isEmpty()) return 0.0
-            val i = ((p / 100.0) * (s.size - 1)).toInt().coerceIn(0, s.lastIndex)
-            return s[i]
-        }
-        return org.json.JSONObject()
-            .put("gyro_hz", gyroHz)
-            .put("accel_hz", accelHz)
-            .put("rv_hz", rvHz)
-            .put("gyro_gap_p5_ms", pct(g, 5.0))
-            .put("gyro_gap_p50_ms", pct(g, 50.0))
-            .put("gyro_gap_p95_ms", pct(g, 95.0))
-            .put("accel_gap_p5_ms", pct(a, 5.0))
-            .put("accel_gap_p50_ms", pct(a, 50.0))
-            .put("accel_gap_p95_ms", pct(a, 95.0))
-            .put("rv_gap_p5_ms", pct(r, 5.0))
-            .put("rv_gap_p50_ms", pct(r, 50.0))
-            .put("rv_gap_p95_ms", pct(r, 95.0))
-            .put("n_gyro", g.size)
-            .put("n_accel", a.size)
-            .put("n_rv", r.size)
-            .put("location_hz", locationHz)
+        val o = JSONObject()
+        o.put("gyro_hz", gyroHz)
+        o.put("accel_hz", accelHz)
+        o.put("rv_hz", rvHz)
+        o.put("gyro_gap_p5_ms", percentileMs(g, 5.0))
+        o.put("gyro_gap_p50_ms", percentileMs(g, 50.0))
+        o.put("gyro_gap_p95_ms", percentileMs(g, 95.0))
+        o.put("accel_gap_p5_ms", percentileMs(a, 5.0))
+        o.put("accel_gap_p50_ms", percentileMs(a, 50.0))
+        o.put("accel_gap_p95_ms", percentileMs(a, 95.0))
+        o.put("rv_gap_p5_ms", percentileMs(r, 5.0))
+        o.put("rv_gap_p50_ms", percentileMs(r, 50.0))
+        o.put("rv_gap_p95_ms", percentileMs(r, 95.0))
+        o.put("n_gyro", g.size)
+        o.put("n_accel", a.size)
+        o.put("n_rv", r.size)
+        o.put("location_hz", locationHz)
+        o.put("window_s", gyroHzWindow.size)
+        val gh = JSONArray()
+        for (v in gyroHzWindow) gh.put(v)
+        o.put("gyro_hz_last_60s", gh)
+        val ah = JSONArray()
+        for (v in accelHzWindow) ah.put(v)
+        o.put("accel_hz_last_60s", ah)
+        val rh = JSONArray()
+        for (v in rvHzWindow) rh.put(v)
+        o.put("rv_hz_last_60s", rh)
+        return o
     }
 
     fun start() {
@@ -110,6 +121,9 @@ class SensorHub(
             val dt = (now - rateWindowNs) / 1e9
             gyroHz = gyroCount / dt; accelHz = accelCount / dt; rvHz = rvCount / dt
             locationHz = locCount / dt
+            pushWindow(gyroHzWindow, gyroHz, 60)
+            pushWindow(accelHzWindow, accelHz, 60)
+            pushWindow(rvHzWindow, rvHz, 60)
             gyroCount = 0; accelCount = 0; rvCount = 0; locCount = 0; rateWindowNs = now
         }
         refreshPower()

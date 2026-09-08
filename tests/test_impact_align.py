@@ -112,11 +112,13 @@ def test_m2_night_gate_rejects_rough_broken_storm():
         "run": {
             "frames": 90,
             "overlay_ok": True,
-            "n_confirmed_tracks": 0,
+            "n_confirmed_tracks": 2,
             "n_alerts_fired": 0,
             "n_rough_broken_confirmed": 0,
+            "n_info_confirmed": 2,
+            "confirmed_semantics": {"puddle": 2},
             "road_frame_share": 0.7,
-            "confirmed_per_min": 0.0,
+            "confirmed_per_min": 2.0,
         },
     }
     day_ok = {

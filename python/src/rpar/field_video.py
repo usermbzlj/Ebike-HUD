@@ -12,7 +12,7 @@ import numpy as np
 
 from rpar import SCHEMA_VERSION
 from rpar.config import RparConfig, load_config
-from rpar.enums import UiMode
+from rpar.enums import INFO_LAYER_SEMANTICS, UiMode
 from rpar.golden import run_video_file
 from rpar.perception import load_engine, load_field_engine
 
@@ -275,6 +275,9 @@ def render_yolop_stills(path: Path, dest: Path, engine, ratios: tuple[float, ...
     return out
 
 
+_INFO_SEM = {s.value for s in INFO_LAYER_SEMANTICS}
+
+
 def m2_clip_gates(clip: dict[str, Any]) -> dict[str, Any]:
     """Appendix B software proxies for a single field clip. Not GT first-confirm or PKC110 10 h."""
     run = clip.get("run") if isinstance(clip.get("run"), dict) else {}
@@ -285,6 +288,11 @@ def m2_clip_gates(clip: dict[str, Any]) -> dict[str, Any]:
     n_conf = int(run.get("n_confirmed_tracks") or 0)
     n_alerts = int(run.get("n_alerts_fired") or 0)
     n_rough = int(run.get("n_rough_broken_confirmed") or 0)
+    sem = run.get("confirmed_semantics") if isinstance(run.get("confirmed_semantics"), dict) else {}
+    n_info = int(run.get("n_info_confirmed") or 0)
+    if not n_info and sem:
+        n_info = sum(int(v) for k, v in sem.items() if str(k) in _INFO_SEM)
+    n_solid = max(0, n_conf - n_info)
     road_share = float(run.get("road_frame_share") or 0.0)
     per_min = float(run.get("confirmed_per_min") or 0.0)
     is_night = alias == "night_25013"
@@ -294,7 +302,7 @@ def m2_clip_gates(clip: dict[str, Any]) -> dict[str, Any]:
         "has_frames": frames > 0,
     }
     if is_night:
-        checks["night_no_confirmed_tracks"] = n_conf == 0
+        checks["night_no_solid_damage"] = n_solid == 0 and n_rough == 0
         checks["night_no_alerts"] = n_alerts == 0
         checks["night_no_rough_broken"] = n_rough == 0
     if is_day:
@@ -306,11 +314,13 @@ def m2_clip_gates(clip: dict[str, Any]) -> dict[str, Any]:
         "checks": checks,
         "pass": passed,
         "n_confirmed_tracks": n_conf,
+        "n_info_confirmed": n_info,
+        "n_solid_confirmed": n_solid,
         "n_alerts_fired": n_alerts,
         "confirmed_per_min": per_min,
         "road_frame_share": road_share,
         "spec_solid_fp_per_min": 1.0 if is_night else (0.5 if is_day else None),
-        "note": "Night confirmed==0 is a false-positive proxy on the smooth-asphalt clip, not GT first-confirm.",
+        "note": "Night solid-damage==0 is an asphalt-noise proxy; info-layer puddle/gravel is allowed. Not GT first-confirm.",
     }
 
 

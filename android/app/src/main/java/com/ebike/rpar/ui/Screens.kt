@@ -198,6 +198,14 @@ fun HudScreen(runtime: RparRuntime, onOpenSettings: () -> Unit) {
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 56.dp),
             )
         }
+        if (ui.emergency) {
+            Text(
+                if (ui.emergencyReason == "imu_crash") "疑似碰撞/剧烈振动，已停止采集，停车后确认" else "紧急停止",
+                color = HudAccent,
+                fontSize = 16.sp,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 48.dp),
+            )
+        }
         if (ui.storageLight) {
             Text("存储不足，无视频轻量记录", color = HudMuted, fontSize = 12.sp, modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
         }

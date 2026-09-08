@@ -34,6 +34,8 @@ Debug 构建使用 Android 默认 debug 密钥，仅供开发安装。场测 APK
 - M5：确认轨迹与未来 0–3 s（或预计压过时刻）IMU 对齐；速度归一化标签；平整补丁与起伏的合成分离证明；`used_for_alert` 恒为 false；会话包写入 `perception/impact_align.json`；`rpar impact-align`
 - 遮挡多边形覆盖道路时不再生成新的确认实例（附录 B M2）；能力探测按 Camera2 最小帧时长列出真实 FPS 候选，优先 1080p
 - CAP-003：16.67 ms 最小帧时长按四舍五入选 1080p60（不再截断成 59 后掉到 30）；探测 JSON 写入预览+YUV+录像候选、AE FPS 范围，以及 YUV 时间戳实测帧率
+- CAM-012：加速度残差 ≥4 g 或剧烈角速度时停止采集，停车后再次开始即确认；CAP-004 记录最近 60 s IMU 采样率
+- M2 夜间门改为禁止固体病害确认；积水/碎石信息层允许出现且不得播报
 - `rpar field-video` 编目并跑 `Video/` 实拍片段（规格 25007/25013 按时长对齐）；mp4 不入库
 - 桌面 YOLOPv2 ONNX sidecar：可行驶区域 + 车辆遮挡，与启发式混合；权重不入库
 - 手机可将 YOLOPv2 教师蒸馏的 `roadseg-field-0.1.0` JSON 双尺度头作为道路/遮挡 sidecar；异常仍走启发式，空 sidecar 不空白 HUD

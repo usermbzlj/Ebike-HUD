@@ -12,13 +12,31 @@ import cv2
 import numpy as np
 
 from rpar.config import RparConfig, load_config
-from rpar.enums import Direction, LifecycleState, SemanticType, UiMode
+from rpar.enums import Direction, INFO_LAYER_SEMANTICS, LifecycleState, SemanticType, UiMode
 from rpar.geometry import GeometryEngine
 from rpar.overlay import compose
 from rpar.perception import HeuristicPerceptionEngine, load_field_engine, oracle_engine_for_sim
 from rpar.pipeline import RealtimePipeline
 from rpar.simulator import RoadSimulator, SimConfig, write_preview_video
 from rpar.transforms import default_intrinsics, default_mount
+
+_INFO_SEMANTICS = {s.value for s in INFO_LAYER_SEMANTICS}
+
+
+def open_mp4_writer(path: Path | str, fps: float, size: tuple[int, int]) -> cv2.VideoWriter:
+    """Prefer H.264 when the OpenCV build has it; fall back to mp4v."""
+    dest = str(path)
+    last: cv2.VideoWriter | None = None
+    for code in ("avc1", "H264", "X264", "mp4v"):
+        four = "".join(code[:4]).ljust(4)
+        vw = cv2.VideoWriter(dest, cv2.VideoWriter_fourcc(*four), float(max(fps, 1.0)), size)
+        last = vw
+        if vw.isOpened():
+            return vw
+        vw.release()
+    if last is None:
+        raise RuntimeError(f"cannot open video writer for {dest}")
+    return last
 
 
 @dataclass
@@ -110,12 +128,7 @@ def run_simulator_golden(
 def _accumulate(pipe, sim, ui_mode, overlay_path: Path | None = None) -> GoldenMetrics:
     vw = None
     if overlay_path is not None:
-        vw = cv2.VideoWriter(
-            str(overlay_path),
-            cv2.VideoWriter_fourcc(*"mp4v"),
-            sim.sim.fps,
-            (sim.sim.width, sim.sim.height),
-        )
+        vw = open_mp4_writer(overlay_path, sim.sim.fps, (sim.sim.width, sim.sim.height))
     first_confirm: dict[str, float] = {}
     dist_err: list[float] = []
     dir_ok = dir_n = 0
@@ -288,7 +301,7 @@ def run_video_file(
     pipe = RealtimePipeline(cfg, eng, GeometryEngine(mount, cfg.geometry, k), model_version=version)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    vw = cv2.VideoWriter(str(out_dir / "overlay.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+    vw = open_mp4_writer(out_dir / "overlay.mp4", fps, (w, h))
     from rpar.models import FrameMeta, SynchronizedFrame
 
     n_src = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
@@ -404,6 +417,7 @@ def run_video_file(
         "n_alerts_fired": alerts,
         "confirmed_semantics": sem_counts,
         "n_rough_broken_confirmed": sum(1 for s in confirmed_sem.values() if s == SemanticType.ROUGH_BROKEN.value),
+        "n_info_confirmed": sum(1 for s in confirmed_sem.values() if s in _INFO_SEMANTICS),
         "n_unknown_confirmed": sum(1 for s in confirmed_sem.values() if s == SemanticType.UNKNOWN_ANOMALY.value),
         "n_confirmed_with_distance": len(confirmed_dist_ids),
         "n_confirmed_with_direction": len(confirmed_dir_ids),

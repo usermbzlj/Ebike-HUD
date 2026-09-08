@@ -26,6 +26,7 @@ import com.ebike.rpar.recorder.SegmentRecovery
 import com.ebike.rpar.recorder.SessionWriter
 import com.ebike.rpar.recorder.SplitZip
 import com.ebike.rpar.sensor.SensorHub
+import com.ebike.rpar.sensor.severeImpact
 import com.ebike.rpar.sync.FrameSynchronizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +56,7 @@ data class UiState(
     val usingTestPattern: Boolean = true,
     val cameraDegrade: String? = null,
     val emergency: Boolean = false,
+    val emergencyReason: String = "",
     val capabilityJson: String = "",
     val modelId: String = "heuristic-cv-0.1.0",
     val mountName: String = "left_handlebar_v1",
@@ -211,13 +213,18 @@ class RparRuntime(private val app: android.app.Application) {
         _ui.value = _ui.value.copy(touchLocked = locked)
     }
 
-    fun emergencyStop() {
-        _ui.value = _ui.value.copy(emergency = true, touchLocked = false)
+    fun emergencyStop(source: String = "user") {
+        val line = if (source == "imu_crash") "疑似碰撞/剧烈振动，已停止采集，停车后确认" else "紧急停止"
+        _ui.value = _ui.value.copy(emergency = true, touchLocked = false, statusLine = line, emergencyReason = source)
         stopCapture()
-        diagnostics.event("APP", "emergency_stop", "user")
+        diagnostics.event("APP", "emergency_stop", source)
     }
 
     fun startCapture(surface: SurfaceTexture?, preferCamera: Boolean) {
+        if (_ui.value.emergency) {
+            diagnostics.event("APP", "emergency_cleared", "resume")
+            _ui.value = _ui.value.copy(emergency = false, emergencyReason = "")
+        }
         val useCam = preferCamera &&
             _ui.value.runMode != RunMode.REPLAY &&
             _ui.value.runMode != RunMode.SAFE_MODE
@@ -471,6 +478,23 @@ class RparRuntime(private val app: android.app.Application) {
                 if (_ui.value.emergency && fromCamera) return@withLock
                 if (_ui.value.paused) return@withLock
                 val frame = sync.attach(raw)
+                val acc = frame.linearAccel
+                val gyro = frame.angularVelocity
+                val gmag = if (gyro != null && gyro.size >= 3) {
+                    kotlin.math.sqrt(gyro[0] * gyro[0] + gyro[1] * gyro[1] + gyro[2] * gyro[2])
+                } else {
+                    0.0
+                }
+                if (
+                    fromCamera &&
+                    !_ui.value.usingTestPattern &&
+                    acc != null &&
+                    acc.size >= 3 &&
+                    severeImpact(acc[0], acc[1], acc[2], gmag)
+                ) {
+                    emergencyStop("imu_crash")
+                    return@withLock
+                }
                 latestBitmap = frame.bitmap
                 pipeline.thermalC = sensors.thermalC
                 pipeline.recSeconds = (SystemClock.elapsedRealtime() - recStartElapsed) / 1000.0
