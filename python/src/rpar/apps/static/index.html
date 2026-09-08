@@ -135,6 +135,7 @@
         <button id="btnClip">导出片段</button>
         <button id="btnShare">分享包脱敏</button>
         <button id="btnEval">场景评估</button>
+        <button id="btnErrorLib">错误案例库</button>
         <button id="btnAnnotate">导出标注/CVAT</button>
         <button id="btnTrain">训练卡片</button>
       </div>
@@ -311,6 +312,12 @@
       const r = await fetch("/api/eval", {method:"POST"}).then(x => x.json());
       $("repPre").textContent = JSON.stringify({oracle: r.oracle, hard_negatives: r.hard_negatives, slices: Object.keys(r.scenes?.slices||{})}, null, 2);
       $("repStatus").textContent = "hard-neg alerts=" + (r.hard_negatives?.n_alerts_fired ?? "?");
+    };
+    $("btnErrorLib").onclick = async () => {
+      $("repStatus").textContent = "收割错误案例…";
+      const r = await fetch("/api/error-lib", {method:"POST"}).then(x => x.json());
+      $("repPre").textContent = JSON.stringify(r, null, 2);
+      $("repStatus").textContent = "error-lib items=" + (r.n_items ?? 0);
     };
     $("btnOffset").onclick = async () => {
       const r = await fetch("/api/replay/offset").then(x => x.json());

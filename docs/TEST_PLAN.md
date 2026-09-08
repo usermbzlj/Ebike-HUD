@@ -12,6 +12,7 @@
 - 会话录制 + 回放 + SYNC-006 偏移扫描 + SHARE_REDACTED 导出
 - Hard-negative 切片不产生语音提醒；模型包含 SHA-256 与占位 tflite
 - CAM-009 变换链叠加误差 ≤8 px；CVAT 导出；主动学习队列；减震 A/B 统计；双尺度线性训练卡片
+- classmap → 观测解码；道路/遮挡 jsonl；错误案例库；雨天/振动场景切片；512 MB 分卷导出
 
 黄金回归命令：
 

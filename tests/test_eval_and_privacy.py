@@ -48,6 +48,6 @@ def test_model_package_has_tflite_and_sha(tmp_path: Path):
 
 def test_eval_bundle_scene_slices(tmp_path: Path):
     scenes = scene_matrix_report(tmp_path / "scenes", load_config())
-    assert set(scenes["slices"]) >= {"day", "night", "follow", "glare"}
+    assert set(scenes["slices"]) >= {"day", "night", "follow", "glare", "rain", "vibration"}
     cards = precision_cards(tmp_path / "precision")
     assert "INT8" in cards

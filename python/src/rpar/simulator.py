@@ -38,6 +38,8 @@ class SimConfig:
     blur_windows: list[tuple[float, float]] = field(default_factory=list)
     glare_windows: list[tuple[float, float]] = field(default_factory=list)
     occlude_windows: list[tuple[float, float]] = field(default_factory=list)
+    rain: bool = False
+    vibration: bool = False
 
 
 def default_world() -> list[WorldObject]:
@@ -112,10 +114,40 @@ class RoadSimulator:
 
     def motion_at(self, t: float) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
         rough = 0.05 * np.sin(t * 28.0)
+        if self.sim.vibration:
+            rough *= 10.0
         impact = 1.8 if self._in_windows(t, self.sim.blur_windows) else 0.0
+        if self.sim.vibration:
+            impact += 0.55
         gyro = (float(0.03 * np.sin(t * 17.0)), float(0.04 * np.sin(t * 11.0) + impact * 0.4), float(rough + impact))
         accel = (float(0.15 * np.sin(t * 9.0)), float(self.sim.speed_mps * 0.02), float(9.81 + impact * 4.0 + rough))
         return gyro, accel
+
+    def classmap_at(self, index: int) -> np.ndarray:
+        """Ground-truth dense labels: 0 bg, 1 road, 2 anomaly, 3 occlusion (PER-014)."""
+        from rpar.segdecode import CLASS_ANOMALY, CLASS_OCC, CLASS_ROAD
+
+        t = index / self.sim.fps
+        w, h = self.sim.width, self.sim.height
+        m = np.zeros((h, w), dtype=np.uint8)
+        pts = self._road_pixel_pts()
+        if len(pts) >= 3:
+            cv2.fillConvexPoly(m, np.array(pts, dtype=np.int32), CLASS_ROAD)
+        for obj in self.objects:
+            poly = self.object_polygon(obj, t)
+            if poly and len(poly) >= 3:
+                cv2.fillPoly(m, [np.array(poly, dtype=np.int32)], CLASS_ANOMALY)
+        if self._in_windows(t, self.sim.occlude_windows):
+            cv2.rectangle(m, (int(w * 0.34), int(h * 0.28)), (int(w * 0.72), int(h * 0.70)), CLASS_OCC, -1)
+        return m
+
+    def _road_pixel_pts(self) -> list:
+        pts = []
+        for x, y in [(-4.5, 3.0), (4.5, 3.0), (6.5, 45.0), (-6.5, 45.0)]:
+            uv = project_vehicle_point(np.array([x, y, 0.0]), self.mount, self.k)
+            if uv is not None:
+                pts.append(uv)
+        return pts
 
     def object_polygon(self, obj: WorldObject, t: float) -> list[tuple[float, float]] | None:
         rel_y = obj.y0_m - self.ego_y(t)
@@ -189,25 +221,36 @@ class RoadSimulator:
             overlay = bgr.copy()
             cv2.circle(overlay, (w // 2, int(h * 0.22)), 220, (255, 255, 255), -1)
             bgr = cv2.addWeighted(bgr, 0.55, overlay, 0.45, 20)
+        if self.sim.rain:
+            rng = np.random.default_rng(int(t * 1000) % 10_000)
+            overlay = bgr.copy()
+            for _ in range(90):
+                x = int(rng.integers(0, w))
+                y = int(rng.integers(0, h))
+                cv2.line(overlay, (x, y), (x + 2, y + 16), (190, 190, 200), 1)
+            bgr = cv2.addWeighted(overlay, 0.28, bgr, 0.72, 0)
+            bgr = cv2.GaussianBlur(bgr, (5, 5), 1.1)
         if self._in_windows(t, self.sim.blur_windows):
             k = 21
             bgr = cv2.GaussianBlur(bgr, (k, k), 8)
             M = np.float32([[1, 0, 18], [0, 1, 0]])
             shifted = cv2.warpAffine(bgr, M, (w, h))
             bgr = cv2.addWeighted(bgr, 0.45, shifted, 0.55, 0)
+        if self.sim.vibration:
+            dx = int(5 * np.sin(t * 41.0))
+            M = np.float32([[1, 0, dx], [0, 1, 0]])
+            bgr = cv2.warpAffine(bgr, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
+            bgr = cv2.GaussianBlur(bgr, (9, 9), 2.0)
         gt = {"t": t, "ego_y": ego, "objects": gt_objs, "speed_mps": self.sim.speed_mps}
         return bgr, gt
 
     def _draw_road(self, bgr: np.ndarray, ego_y: float) -> None:
         w, h = self.sim.width, self.sim.height
+        wet = self.sim.wet or self.sim.rain
         asphalt = (58, 58, 62) if not self.sim.night else (36, 36, 38)
-        if self.sim.wet:
+        if wet:
             asphalt = (48, 42, 38) if not self.sim.night else (28, 26, 24)
-        pts = []
-        for x, y in [(-4.5, 3.0), (4.5, 3.0), (6.5, 45.0), (-6.5, 45.0)]:
-            uv = project_vehicle_point(np.array([x, y, 0.0]), self.mount, self.k)
-            if uv is not None:
-                pts.append(uv)
+        pts = self._road_pixel_pts()
         if len(pts) >= 3:
             cv2.fillConvexPoly(bgr, np.array(pts, dtype=np.int32), asphalt)
         # lane dashes every 4 m
@@ -218,7 +261,7 @@ class RoadSimulator:
                 p1 = project_vehicle_point(np.array([x, s + 3.0, 0.0]), self.mount, self.k)
                 if p0 is not None and p1 is not None:
                     cv2.line(bgr, tuple(p0.astype(int)), tuple(p1.astype(int)), (210, 210, 220), 3, cv2.LINE_AA)
-        if self.sim.wet:
+        if wet:
             overlay = bgr.copy()
             for x in (-1.6, 0.0, 1.6):
                 p0 = project_vehicle_point(np.array([x, 6.0, 0.0]), self.mount, self.k)
@@ -237,7 +280,7 @@ class RoadSimulator:
             if len(cone) >= 3:
                 cv2.fillConvexPoly(overlay, np.array(cone, dtype=np.int32), (70, 70, 40))
                 cv2.addWeighted(overlay, 0.35, bgr, 0.65, 0, bgr)
-        if self.sim.wet:
+        if wet:
             rng = np.random.default_rng(int(ego_y * 10) % 10_000)
             overlay = bgr.copy()
             for _ in range(6):

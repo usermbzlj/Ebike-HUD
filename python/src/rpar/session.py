@@ -93,6 +93,8 @@ class SessionWriter:
             "location/location.jsonl",
             "perception/observations.jsonl",
             "perception/tracks.jsonl",
+            "perception/road.jsonl",
+            "perception/occlusion.jsonl",
             "events/alerts.jsonl",
             "events/marks.jsonl",
             "diagnostics/runtime.jsonl",
@@ -128,6 +130,8 @@ class SessionWriter:
         alerts: list[AlertDecision] | None,
         diagnostics: dict[str, Any] | None,
         observations: list[dict[str, Any]] | None = None,
+        road_polygon: list[tuple[float, float]] | None = None,
+        occluded_polygons: list[list[tuple[float, float]]] | None = None,
     ) -> None:
         if self._video is None:
             raise RuntimeError("segment not open")
@@ -148,6 +152,12 @@ class SessionWriter:
             with (self.root / "perception" / "observations.jsonl").open("a", encoding="utf-8") as f:
                 for o in observations:
                     f.write(json_dumps(o) + "\n")
+        if road_polygon is not None or occluded_polygons is not None:
+            self.write_masks(
+                meta.sensor_timestamp_ns,
+                road_polygon or [],
+                occluded_polygons or [],
+            )
         if tracks:
             with (self.root / "perception" / "tracks.jsonl").open("a", encoding="utf-8") as f:
                 for t in tracks:
@@ -173,6 +183,17 @@ class SessionWriter:
     def write_event(self, event: dict[str, Any]) -> None:
         with (self.root / "diagnostics" / "events.jsonl").open("a", encoding="utf-8") as f:
             f.write(json_dumps(event) + "\n")
+
+    def write_masks(
+        self,
+        timestamp_ns: int,
+        road_polygon: list[tuple[float, float]],
+        occluded_polygons: list[list[tuple[float, float]]],
+    ) -> None:
+        with (self.root / "perception" / "road.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json_dumps({"timestamp_ns": timestamp_ns, "road_polygon": road_polygon}) + "\n")
+        with (self.root / "perception" / "occlusion.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json_dumps({"timestamp_ns": timestamp_ns, "occluded_polygons": occluded_polygons}) + "\n")
 
     def write_mark(self, timestamp_ns: int, note: str, frame_id: int | None = None) -> None:
         with (self.root / "events" / "marks.jsonl").open("a", encoding="utf-8") as f:

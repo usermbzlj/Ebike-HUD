@@ -18,6 +18,7 @@ from rpar.ml.synth_train import write_training_bundle
 from rpar.ml.train import split_sessions, write_model_package, write_run_card
 from rpar.report import write_report
 from rpar.replay import SessionReplay, scan_time_offset_ms
+from rpar.error_cases import harvest_error_cases
 from rpar.session import export_bundle, export_split_zip, verify_session
 from rpar.share import export_share_bundle
 from rpar.simulator import RoadSimulator, SimConfig, write_preview_video
@@ -113,6 +114,10 @@ def main(argv: list[str] | None = None) -> int:
     ex.add_argument("session")
     ex.add_argument("--out", default="artifacts/export")
     ex.add_argument("--split-mb", type=float, default=0.0, help="if >0, emit .partNN.zip volumes")
+
+    el = sub.add_parser("error-lib", help="harvest fired alerts and marks into an error-case library")
+    el.add_argument("session")
+    el.add_argument("--out", default="artifacts/error_lib")
 
     args = p.parse_args(argv)
     if args.cmd == "serve":
@@ -212,6 +217,9 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps([str(p) for p in parts], indent=2))
         else:
             print(export_bundle(src, dest))
+        return 0
+    if args.cmd == "error-lib":
+        print(json.dumps(harvest_error_cases(Path(args.session), Path(args.out)), indent=2, ensure_ascii=False)[:4000])
         return 0
     return 1
 

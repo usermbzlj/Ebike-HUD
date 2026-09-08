@@ -53,7 +53,8 @@ class SessionWriter(
             "imu/gyro.jsonl", "imu/accelerometer.jsonl", "imu/rotation_vector.jsonl",
             "location/location.jsonl",
             "perception/observations.jsonl", "perception/tracks.jsonl",
-            "events/alerts.jsonl", "diagnostics/runtime.jsonl", "diagnostics/events.jsonl",
+            "perception/road.jsonl", "perception/occlusion.jsonl",
+            "events/alerts.jsonl", "events/marks.jsonl", "diagnostics/runtime.jsonl", "diagnostics/events.jsonl",
         ).forEach { File(root, it).appendText("") }
         writeManifest(null)
     }
@@ -91,6 +92,20 @@ class SessionWriter(
         alerts?.forEach { appendLine("events/alerts.jsonl", it.toJson()) }
         diagnostics.forEach { appendLine("diagnostics/events.jsonl", it.toJson()) }
         if (runtime != null) appendLine("diagnostics/runtime.jsonl", runtime)
+    }
+
+    fun writeMasks(timestampNs: Long, road: List<Pair<Float, Float>>, occ: List<List<Pair<Float, Float>>>) {
+        if (closed) return
+        val roadObj = JSONObject()
+        roadObj.put("timestamp_ns", timestampNs)
+        roadObj.put("road_polygon", polygonToJson(road))
+        appendLine("perception/road.jsonl", roadObj)
+        val occObj = JSONObject()
+        occObj.put("timestamp_ns", timestampNs)
+        val arr = JSONArray()
+        occ.forEach { arr.put(polygonToJson(it)) }
+        occObj.put("occluded_polygons", arr)
+        appendLine("perception/occlusion.jsonl", occObj)
     }
 
     fun writeMark(timestampNs: Long, note: String) {
@@ -208,6 +223,7 @@ class SessionWriter(
             "imu gyro / accelerometer / rotation_vector jsonl",
             "location jsonl (precise coordinates, local only)",
             "perception observations + tracks jsonl",
+            "perception/road.jsonl + occlusion.jsonl",
             "events/alerts.jsonl (decision snapshots)",
             "events/clips (JPEG ring around voice alerts)",
             "video/overlay_preview.jsonl (AR primitives)",

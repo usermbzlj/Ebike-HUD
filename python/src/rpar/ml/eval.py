@@ -19,7 +19,7 @@ from rpar.simulator import RoadSimulator, SimConfig, WorldObject
 from rpar.enums import GeometryType, Severity
 
 
-SCENE_SLICES = ("day", "night", "wet", "backlight", "follow", "glare", "rough")
+SCENE_SLICES = ("day", "night", "wet", "backlight", "follow", "glare", "rough", "rain", "vibration")
 HARD_NEGATIVES = ("tree_shadow", "patch", "marking", "reflection", "manhole_normal", "vehicle_shadow")
 
 
@@ -93,6 +93,8 @@ def scene_matrix_report(out_dir: Path, cfg: RparConfig | None = None) -> dict[st
         "follow": SimConfig(width=640, height=360, duration_s=1.2, fps=15, occlude_windows=[(0.5, 1.0)]),
         "glare": SimConfig(width=640, height=360, duration_s=1.2, fps=15, glare_windows=[(0.7, 1.2)]),
         "rough": SimConfig(width=640, height=360, duration_s=1.2, fps=15, blur_windows=[(0.4, 0.9)]),
+        "rain": SimConfig(width=640, height=360, duration_s=1.2, fps=15, rain=True, wet=True, blur_windows=[(0.4, 0.8)]),
+        "vibration": SimConfig(width=640, height=360, duration_s=1.2, fps=15, vibration=True, blur_windows=[(0.2, 1.0)]),
     }
     report: dict[str, Any] = {"schema_version": SCHEMA_VERSION, "slices": {}}
     for name in SCENE_SLICES:

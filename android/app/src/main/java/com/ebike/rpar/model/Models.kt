@@ -402,6 +402,8 @@ data class PerceptionView(
     val droppedInfer: Int = 0,
     val inputFar: IntArray = intArrayOf(768, 384),
     val inputNear: IntArray = intArrayOf(640, 480),
+    val roadPolygon: List<Pair<Float, Float>> = emptyList(),
+    val occludedPolygons: List<List<Pair<Float, Float>>> = emptyList(),
 )
 
 data class YuvImageBuffer(

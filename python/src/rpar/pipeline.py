@@ -99,6 +99,8 @@ class RealtimePipeline:
         self._infer_period_ns = int(1e9 / max(cfg.runtime.infer_fps, 1.0))
         self._base_infer_period_ns = self._infer_period_ns
         self._last_input_sizes: list[tuple[int, int]] = [cfg.model.input_far, cfg.model.input_near]
+        self.last_road_polygon: list[tuple[float, float]] = []
+        self.last_occluded: list[list[tuple[float, float]]] = []
 
     def reset(self) -> None:
         self.tracker.reset()
@@ -108,6 +110,8 @@ class RealtimePipeline:
         self.status = PerceptionStatus.NORMAL
         self.last_observations = []
         self.did_infer = False
+        self.last_road_polygon = []
+        self.last_occluded = []
         self._infer_period_ns = self._base_infer_period_ns
         self.thermal_reason = None
         self.skip_far_roi = False
@@ -196,6 +200,8 @@ class RealtimePipeline:
             result = self.engine.infer(sel_frame, sel_q)
             observations = result.observations
             self.last_observations = observations
+            self.last_road_polygon = list(result.road_polygon)
+            self.last_occluded = list(result.occluded_polygons)
             self.did_infer = True
             backend = result.backend
             infer_ms = result.latency_ms
@@ -343,6 +349,8 @@ class RealtimePipeline:
             dropped_infer=self.dropped_infer,
             input_far=self._last_input_sizes[0] if self._last_input_sizes else self.cfg.model.input_far,
             input_near=self._last_input_sizes[-1] if self._last_input_sizes else self.cfg.model.input_near,
+            road_polygon=self.last_road_polygon,
+            occluded_polygons=self.last_occluded,
         )
         self.last_view = view
         return view
@@ -358,7 +366,37 @@ class RealtimePipeline:
         latency_ms: float = 0.0,
     ) -> list[RenderPrimitive]:
         prims: list[RenderPrimitive] = []
-        # occlusion tiles as unknown, not danger-red
+        if ui_mode == UiMode.RESEARCH and self.last_road_polygon:
+            prims.append(
+                RenderPrimitive(
+                    track_id=-6,
+                    polygon=self.last_road_polygon,
+                    color_rgba=(0.18, 0.72, 0.42, 0.16),
+                    dashed=True,
+                    thickness=1.0,
+                    label=None,
+                    label_priority=85,
+                    fade=0.6,
+                    kind="road",
+                )
+            )
+        for i, poly in enumerate(self.last_occluded):
+            if len(poly) < 3:
+                continue
+            prims.append(
+                RenderPrimitive(
+                    track_id=-7 - i,
+                    polygon=poly,
+                    color_rgba=(0.45, 0.5, 0.58, 0.28),
+                    dashed=True,
+                    thickness=1.0,
+                    label=None if ui_mode != UiMode.RESEARCH else "occlusion",
+                    label_priority=86,
+                    fade=0.7,
+                    kind="occlusion",
+                )
+            )
+        # occupancy tiles as unknown, not danger-red
         if qmap.occupancy_occluded_ratio > 0.25:
             prims.append(
                 RenderPrimitive(

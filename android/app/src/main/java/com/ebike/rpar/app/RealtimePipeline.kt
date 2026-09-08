@@ -47,6 +47,8 @@ class RealtimePipeline(
     var status: PerceptionStatus = PerceptionStatus.NORMAL
     var lastView: PerceptionView? = null
     var lastObservations: List<com.ebike.rpar.model.RoadObservation> = emptyList()
+    var lastRoadPolygon: List<Pair<Float, Float>> = emptyList()
+    var lastOccPolygons: List<List<Pair<Float, Float>>> = emptyList()
     var didInfer: Boolean = false
     var inferCount = 0
     var frameCount = 0
@@ -108,6 +110,8 @@ class RealtimePipeline(
         badStreakS = 0.0
         status = PerceptionStatus.NORMAL
         lastObservations = emptyList()
+        lastRoadPolygon = emptyList()
+        lastOccPolygons = emptyList()
         didInfer = false
         thermalReason = null
         skipFarRoi = false
@@ -178,6 +182,8 @@ class RealtimePipeline(
             inferTimes.addLast(t0)
             while (inferTimes.size > 40) inferTimes.removeFirst()
             lastObservations = observations
+            lastRoadPolygon = result.roadPolygon
+            lastOccPolygons = result.occludedPolygons
             didInfer = true
         } else {
             droppedInfer++
@@ -294,6 +300,8 @@ class RealtimePipeline(
             droppedInfer = droppedInfer,
             inputFar = lastInputFar,
             inputNear = lastInputNear,
+            roadPolygon = lastRoadPolygon,
+            occludedPolygons = lastOccPolygons,
         )
         lastView = view
         return view
@@ -310,6 +318,21 @@ class RealtimePipeline(
 
     private fun primitives(objs: List<TrackedRoadObject>, uiMode: UiMode, qmap: com.ebike.rpar.model.FrameQualityMap, frameW: Int, frameH: Int, yawRate: Double = 0.0, latencyMs: Double = 0.0): List<RenderPrimitive> {
         val prims = ArrayList<RenderPrimitive>()
+        if (uiMode == UiMode.RESEARCH && lastRoadPolygon.size >= 3) {
+            prims += RenderPrimitive(
+                -6, lastRoadPolygon, floatArrayOf(0.18f, 0.72f, 0.42f, 0.16f),
+                dashed = true, thickness = 1f, label = null, labelPriority = 85, fade = 0.6f, kind = "road",
+            )
+        }
+        lastOccPolygons.forEachIndexed { i, poly ->
+            if (poly.size < 3) return@forEachIndexed
+            prims += RenderPrimitive(
+                -7 - i, poly, floatArrayOf(0.45f, 0.5f, 0.58f, 0.28f),
+                dashed = true, thickness = 1f,
+                label = if (uiMode == UiMode.RESEARCH) "occlusion" else null,
+                labelPriority = 86, fade = 0.7f, kind = "occlusion",
+            )
+        }
         if (qmap.occupancyOccludedRatio > 0.25) {
             prims += RenderPrimitive(
                 trackId = -1, polygon = emptyList(),

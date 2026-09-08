@@ -326,6 +326,8 @@ class PerceptionView:
     dropped_infer: int = 0
     input_far: tuple[int, int] = (768, 384)
     input_near: tuple[int, int] = (640, 480)
+    road_polygon: list[tuple[float, float]] = field(default_factory=list)
+    occluded_polygons: list[list[tuple[float, float]]] = field(default_factory=list)
 
 
 @dataclass(slots=True)

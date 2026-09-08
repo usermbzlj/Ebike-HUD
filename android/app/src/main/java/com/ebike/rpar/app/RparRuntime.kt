@@ -24,6 +24,7 @@ import com.ebike.rpar.perception.ModelManager
 import com.ebike.rpar.recorder.EventClipBuffer
 import com.ebike.rpar.recorder.SegmentRecovery
 import com.ebike.rpar.recorder.SessionWriter
+import com.ebike.rpar.recorder.SplitZip
 import com.ebike.rpar.sensor.SensorHub
 import com.ebike.rpar.sync.FrameSynchronizer
 import kotlinx.coroutines.CoroutineScope
@@ -37,8 +38,6 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 
 enum class AppScreen { DISCLAIMER, FIRST_RUN, HUD, SETTINGS, CALIBRATION, CAPABILITY, EXPORT }
 
@@ -442,15 +441,8 @@ class RparRuntime(private val app: android.app.Application) {
         } else {
             latest
         }
-        val zip = File(outDir, packed.name + ".zip")
-        ZipOutputStream(zip.outputStream()).use { zos ->
-            packed.walkTopDown().filter { it.isFile }.forEach { f ->
-                zos.putNextEntry(ZipEntry(f.relativeTo(packed).invariantSeparatorsPath))
-                f.inputStream().use { it.copyTo(zos) }
-                zos.closeEntry()
-            }
-        }
-        return zip
+        val parts = SplitZip.export(packed, File(outDir, packed.name), 512L * 1024 * 1024)
+        return parts.firstOrNull()
     }
 
     fun setAfLock(lock: Boolean) {
@@ -541,6 +533,9 @@ class RparRuntime(private val app: android.app.Application) {
                             .put("timestamp_ns", frame.meta.sensorTimestampNs)
                             .put("location_interpolated", frame.location?.interpolated == true),
                     )
+                    if (_ui.value.runMode == RunMode.REALTIME_PERCEPTION_FULL_LOG) {
+                        w.writeMasks(frame.meta.sensorTimestampNs, pipeline.lastRoadPolygon, pipeline.lastOccPolygons)
+                    }
                     w.writeOverlay(frame.meta.sensorTimestampNs, view.primitives)
                 }
                 val sound = if (_ui.value.alertsEnabled) "声音提醒" else "静音"

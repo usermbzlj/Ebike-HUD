@@ -18,6 +18,7 @@ from rpar.config import load_config
 from rpar.enums import UiMode
 from rpar.geometry import GeometryEngine
 from rpar.capture import record_simulated_session
+from rpar.error_cases import harvest_error_cases
 from rpar.golden import run_acceptance_suite, run_oracle_golden, run_simulator_golden
 from rpar.ml.active import write_active_queue
 from rpar.ml.eval import write_eval_bundle
@@ -364,6 +365,15 @@ def create_app() -> FastAPI:
         ART.mkdir(parents=True, exist_ok=True)
         bundle = write_training_bundle(ART / "train_synth")
         return {"ok": True, "train_acc": bundle["model"]["train_acc"], "split": bundle["split"]}
+
+    @app.post("/api/error-lib")
+    def error_lib() -> dict[str, Any]:
+        with STATE.lock:
+            if STATE.replay is None:
+                raise HTTPException(status_code=404, detail="no session recorded")
+            src = STATE.replay.root
+        dest = ART / "error_lib" / src.name
+        return harvest_error_cases(src, dest)
 
     return app
 

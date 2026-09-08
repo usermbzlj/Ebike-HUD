@@ -100,6 +100,8 @@ def record_simulated_session(
                 "queue_depth": view.queue_depth,
             },
             observations=[o.to_dict() for o in pipe.last_observations] if pipe.did_infer else None,
+            road_polygon=view.road_polygon if pipe.did_infer or view.road_polygon else None,
+            occluded_polygons=view.occluded_polygons if pipe.did_infer or view.occluded_polygons else None,
         )
         vis = compose(frame.bgr, view, ui_mode)
         ov.write(vis)
