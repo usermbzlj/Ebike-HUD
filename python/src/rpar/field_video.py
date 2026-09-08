@@ -12,6 +12,7 @@ import numpy as np
 
 from rpar import SCHEMA_VERSION
 from rpar.config import RparConfig, load_config
+from rpar.enums import UiMode
 from rpar.golden import run_video_file
 from rpar.perception import load_engine, load_field_engine
 
@@ -338,9 +339,11 @@ def run_field_videos(
     max_frames: int = 180,
     *,
     prefer_yolop: bool = False,
+    ui_mode: UiMode | None = None,
 ) -> dict[str, Any]:
     """Run the field pipeline on every local clip. YOLOPv2 is opt-in so pytest stays fast."""
     cfg = cfg or load_config()
+    mode = ui_mode or UiMode.RIDING
     d = Path(video_dir) if video_dir else repo_video_dir()
     out_dir = Path(out_dir) if out_dir else Path("artifacts") / "field_video"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -360,7 +363,7 @@ def run_field_videos(
             dest = out_dir / alias
             dest.mkdir(parents=True, exist_ok=True)
             extract_preview(src, dest / "preview.jpg")
-            metrics = run_video_file(src, dest, cfg, max_frames=max_frames, engine=engine)
+            metrics = run_video_file(src, dest, cfg, max_frames=max_frames, engine=engine, ui_mode=mode)
             yolop_stills = render_yolop_stills(src, dest, engine) if prefer_yolop else []
             row = {
                 **clip,
@@ -378,6 +381,7 @@ def run_field_videos(
         "catalog": catalog,
         "max_frames": max_frames,
         "prefer_yolop": prefer_yolop,
+        "ui_mode": mode.value,
         "hybrid": hybrid,
         "results": results,
         "n_ok": sum(1 for r in results if r.get("run", {}).get("frames", 0) > 0),

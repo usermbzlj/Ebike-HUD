@@ -267,6 +267,7 @@ def run_video_file(
     engine=None,
     prefer_yolop: bool = False,
     still_ratios: tuple[float, ...] = (0.25, 0.45, 0.65),
+    ui_mode: UiMode = UiMode.RIDING,
 ) -> dict[str, Any]:
     cfg = cfg or load_config()
     cap = cv2.VideoCapture(str(path))
@@ -290,6 +291,12 @@ def run_video_file(
     vw = cv2.VideoWriter(str(out_dir / "overlay.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
     from rpar.models import FrameMeta, SynchronizedFrame
 
+    n_src = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    if max_frames is None or max_frames <= 0:
+        limit = n_src if n_src > 0 else 10_000_000
+    else:
+        limit = max_frames
+    still_base = n_src if (max_frames is None or max_frames <= 0) and n_src > 0 else limit
     i = 0
     t0 = 1_000_000_000_000
     unique_tracks: set[int] = set()
@@ -304,9 +311,9 @@ def run_video_file(
     blurs: list[float] = []
     glares: list[float] = []
     lumas: list[float] = []
-    still_at = {max(0, int(max_frames * r) - 1) for r in still_ratios}
+    still_at = {max(0, int(still_base * r) - 1) for r in still_ratios}
     stills: list[str] = []
-    while i < max_frames:
+    while i < limit:
         ok, bgr = cap.read()
         if not ok:
             break
@@ -337,8 +344,8 @@ def run_video_file(
             location=None,
             speed_mps=10.5,
         )
-        view = pipe.step(frame, ui_mode=UiMode.RIDING)
-        composed = compose(bgr, view, UiMode.RIDING)
+        view = pipe.step(frame, ui_mode=ui_mode)
+        composed = compose(bgr, view, ui_mode)
         vw.write(composed)
         if i in still_at:
             still_path = out_dir / f"overlay_{i:04d}.jpg"
@@ -348,6 +355,8 @@ def run_video_file(
             ride_path = out_dir / f"riding_{i:04d}.jpg"
             cv2.imwrite(str(ride_path), compose(bgr, ride, UiMode.RIDING), [int(cv2.IMWRITE_JPEG_QUALITY), 88])
             stills.append(str(ride_path))
+        if i and i % 60 == 0:
+            print(f"  {path.name}: {i}/{limit} frames", flush=True)
         alerts += sum(1 for a in view.alerts if a.fired)
         blurs.append(view.blur)
         glares.append(view.glare)
