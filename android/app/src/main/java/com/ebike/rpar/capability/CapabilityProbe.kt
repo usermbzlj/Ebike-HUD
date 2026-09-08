@@ -26,6 +26,7 @@ class CapabilityProbe(private val context: Context) {
         modelFile: File? = null,
     ): JSONObject {
         val cam = probeCameras()
+        val sessionCombos = if (concurrentCombo.length() > 0) concurrentCombo else cam.optJSONArray("concurrent_streams") ?: JSONArray()
         val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val arcore = try {
             Class.forName("com.google.ar.core.ArCoreApk")
@@ -63,7 +64,7 @@ class CapabilityProbe(private val context: Context) {
                 .put("ois", flag(cam))
                 .put("preview_stabilization", if (Build.VERSION.SDK_INT >= 33) "available" else "unavailable")
                 .put("npu", "unavailable_until_litert_package"))
-            .put("concurrent_streams", concurrentCombo)
+            .put("concurrent_streams", sessionCombos)
     }
 
     private fun flag(cam: JSONObject): String {
@@ -129,30 +130,75 @@ class CapabilityProbe(private val context: Context) {
                 val vs = ch.get(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES)
                 val af = ch.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES)
                 val intr = ch.get(CameraCharacteristics.LENS_INTRINSIC_CALIBRATION)
-                cameras.put(
-                    JSONObject()
-                        .put("id", id)
-                        .put("logical", (ch.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: intArrayOf())
-                            .contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA))
-                        .put("facing", facing)
-                        .put("outputs", outputs)
-                        .put("ois", if (ois != null && ois.isNotEmpty()) "available" else "unavailable")
-                        .put("video_stabilization", if (vs != null && vs.any { it != 0 }) "available" else "unavailable")
-                        .put("preview_stabilization", if (Build.VERSION.SDK_INT >= 33) "available" else "unavailable")
-                        .put("dynamic_range", JSONArray().put("SDR"))
-                        .put("af", if (af != null && af.isNotEmpty()) "available" else "unavailable")
-                        .put("intrinsics", if (intr != null) "available" else "unavailable")
-                        .put("sensor_size", ch.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)?.let { sz: SizeF -> "${sz.width}x${sz.height}" } ?: "unavailable")
-                        .put("rolling_shutter", "runtime-detected"),
+                val aeRanges = JSONArray()
+                ch.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)?.forEach { r ->
+                    val row = JSONObject()
+                    row.put("min", r.lower)
+                    row.put("max", r.upper)
+                    aeRanges.put(row)
+                }
+                val yuvNs = minDurationNs(map, android.graphics.ImageFormat.YUV_420_888, 1920, 1080)
+                val recNs = minDurationNs(map, android.graphics.ImageFormat.PRIVATE, 1920, 1080).let { ns ->
+                    if (ns > 0L) ns else minDurationNs(map, android.graphics.ImageFormat.JPEG, 1920, 1080)
+                }
+                val combos = JSONArray()
+                for (c in candidateConcurrentCombos(yuvNs, recNs)) {
+                    val row = JSONObject()
+                    row.put("combo", c.combo)
+                    row.put("yuv", c.yuvSize)
+                    row.put("record", c.recordSize)
+                    row.put("requested_fps", c.requestedFps)
+                    row.put("max_fps_from_duration", c.maxFpsFromDuration)
+                    row.put("status", c.status)
+                    combos.put(row)
+                }
+                val camObj = JSONObject()
+                camObj.put("id", id)
+                camObj.put(
+                    "logical",
+                    (ch.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: intArrayOf())
+                        .contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA),
                 )
+                camObj.put("facing", facing)
+                camObj.put("outputs", outputs)
+                camObj.put("ois", if (ois != null && ois.isNotEmpty()) "available" else "unavailable")
+                camObj.put("video_stabilization", if (vs != null && vs.any { it != 0 }) "available" else "unavailable")
+                camObj.put("preview_stabilization", if (Build.VERSION.SDK_INT >= 33) "available" else "unavailable")
+                camObj.put("dynamic_range", JSONArray().put("SDR"))
+                camObj.put("af", if (af != null && af.isNotEmpty()) "available" else "unavailable")
+                camObj.put("intrinsics", if (intr != null) "available" else "unavailable")
+                camObj.put("sensor_size", ch.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)?.let { sz: SizeF -> "${sz.width}x${sz.height}" } ?: "unavailable")
+                camObj.put("rolling_shutter", "runtime-detected")
+                camObj.put("ae_target_fps_ranges", aeRanges)
+                camObj.put("concurrent_streams", combos)
+                cameras.put(camObj)
             }
         } catch (t: Throwable) {
             hw = "unavailable:${t.message}"
         }
+        val fallbackCombos = JSONArray()
+        for (i in 0 until cameras.length()) {
+            val cam = cameras.optJSONObject(i) ?: continue
+            if (cam.optString("facing") == "BACK") {
+                val src = cam.optJSONArray("concurrent_streams") ?: JSONArray()
+                for (j in 0 until src.length()) fallbackCombos.put(src.optJSONObject(j))
+                break
+            }
+        }
         return JSONObject()
             .put("hardware_level", hw)
             .put("cameras", cameras)
-            .put("concurrent_streams", JSONArray())
+            .put("concurrent_streams", fallbackCombos)
+    }
+
+    private fun minDurationNs(map: android.hardware.camera2.params.StreamConfigurationMap?, fmt: Int, w: Int, h: Int): Long {
+        if (map == null) return 0L
+        val sz = map.getOutputSizes(fmt)?.firstOrNull { it.width == w && it.height == h } ?: return 0L
+        return try {
+            map.getOutputMinFrameDuration(fmt, sz)
+        } catch (_: Throwable) {
+            0L
+        }
     }
 
     private fun fmtName(fmt: Int) = when (fmt) {

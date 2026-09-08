@@ -137,15 +137,8 @@ object SizePicker {
         val want = Size(targetW, targetH)
         val has1080 = yuv.any { it.width == targetW && it.height == targetH }
         val size = if (has1080) want else yuv.minByOrNull { kotlin.math.abs(it.width * it.height - targetW * targetH) } ?: Size(1280, 720)
-        val fpsRanges = map.getHighSpeedVideoFpsRangesFor(size) ?: emptyArray()
-        val normal = map.getHighSpeedVideoSizes()?.contains(size) == true
         val range = map.getOutputMinFrameDuration(android.graphics.ImageFormat.YUV_420_888, size)
-        val maxFps = if (range > 0) (1_000_000_000.0 / range).toInt() else 30
-        val fps = when {
-            maxFps >= targetFps -> targetFps
-            maxFps >= fallbackFps -> fallbackFps
-            else -> maxOf(15, maxFps)
-        }
+        val fps = com.ebike.rpar.capability.pickRequestedFpsFromMinDurationNs(range, targetFps, fallbackFps)
         return size to fps
     }
 }

@@ -61,3 +61,13 @@ def test_desktop_capability_cpu_microbench():
     assert results[0]["backend"] == "CPU"
     assert results[0]["status"] == "ok"
     assert "p95_ms" in results[0]
+
+
+def test_desktop_capability_concurrent_schema():
+    cap = desktop_capability_stub()
+    combo = cap["camera"]["concurrent_streams"][0]
+    assert combo["requested_fps"] == 60
+    assert "measured_yuv_fps" in combo
+    cam0 = cap["camera"]["cameras"][0]
+    assert cam0["concurrent_streams"][0]["combo"].startswith("preview+yuv+record@1080p")
+    assert cam0["ae_target_fps_ranges"]

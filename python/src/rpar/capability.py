@@ -78,10 +78,38 @@ def desktop_capability_stub() -> dict[str, Any]:
                     "dynamic_range": ["SDR"],
                     "intrinsics": "runtime-detected",
                     "rolling_shutter": "runtime-detected",
+                    "ae_target_fps_ranges": [{"min": 30, "max": 60}, {"min": 30, "max": 30}],
+                    "concurrent_streams": [
+                        {
+                            "combo": "preview+yuv+record@1080p60",
+                            "yuv": "1920x1080",
+                            "record": "1920x1080",
+                            "requested_fps": 60,
+                            "max_fps_from_duration": 60,
+                            "status": "candidate",
+                        },
+                        {
+                            "combo": "preview+yuv+record@1080p30",
+                            "yuv": "1920x1080",
+                            "record": "1920x1080",
+                            "requested_fps": 30,
+                            "max_fps_from_duration": 60,
+                            "status": "candidate",
+                        },
+                    ],
                 }
             ],
             "concurrent_streams": [
-                {"combo": "preview+yuv+record", "status": "probe_on_device", "actual_fps": None}
+                {
+                    "combo": "preview+yuv+record@1080p60",
+                    "status": "probe_on_device",
+                    "requested_fps": 60,
+                    "actual_fps": None,
+                    "measured_yuv_fps": None,
+                    "measured_n": 0,
+                    "size": "1920x1080",
+                    "record_ok": None,
+                }
             ],
         },
         "sensors": {

@@ -406,12 +406,18 @@ class RparRuntime(private val app: android.app.Application) {
     }
 
     fun runCapability(): String {
-        val combo = JSONArray().put(
-            JSONObject()
-                .put("combo", camera.lastChoice?.combo ?: "unprobed")
-                .put("status", camera.lastChoice?.degradeReason ?: camera.lastChoice?.combo ?: "ok")
-                .put("actual_fps", camera.actualFps),
-        )
+        val combo = JSONArray()
+        val row = JSONObject()
+        val choice = camera.lastChoice
+        row.put("combo", choice?.combo ?: "unprobed")
+        row.put("status", choice?.degradeReason ?: if (choice != null) "ok" else "unprobed")
+        row.put("requested_fps", camera.actualFps)
+        row.put("actual_fps", camera.actualFps)
+        row.put("measured_yuv_fps", camera.measuredFps)
+        row.put("measured_n", camera.measuredFpsN)
+        row.put("size", "${camera.size.width}x${camera.size.height}")
+        row.put("record_ok", choice?.recordOk ?: false)
+        combo.put(row)
         val sensorsJson = JSONObject()
             .put("gyro", JSONObject().put("actual_hz", sensors.gyroHz).put("status", "probed"))
             .put("accel", JSONObject().put("actual_hz", sensors.accelHz).put("status", "probed"))

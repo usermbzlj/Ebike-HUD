@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "generated_at": "2026-09-08T11:03:41.052477+00:00",
+  "generated_at": "2026-09-08T20:21:04.905500+00:00",
   "source": "desktop_stub",
   "device": {
     "manufacturer": "runtime-detected",
@@ -51,14 +51,47 @@
           "SDR"
         ],
         "intrinsics": "runtime-detected",
-        "rolling_shutter": "runtime-detected"
+        "rolling_shutter": "runtime-detected",
+        "ae_target_fps_ranges": [
+          {
+            "min": 30,
+            "max": 60
+          },
+          {
+            "min": 30,
+            "max": 30
+          }
+        ],
+        "concurrent_streams": [
+          {
+            "combo": "preview+yuv+record@1080p60",
+            "yuv": "1920x1080",
+            "record": "1920x1080",
+            "requested_fps": 60,
+            "max_fps_from_duration": 60,
+            "status": "candidate"
+          },
+          {
+            "combo": "preview+yuv+record@1080p30",
+            "yuv": "1920x1080",
+            "record": "1920x1080",
+            "requested_fps": 30,
+            "max_fps_from_duration": 60,
+            "status": "candidate"
+          }
+        ]
       }
     ],
     "concurrent_streams": [
       {
-        "combo": "preview+yuv+record",
+        "combo": "preview+yuv+record@1080p60",
         "status": "probe_on_device",
-        "actual_fps": null
+        "requested_fps": 60,
+        "actual_fps": null,
+        "measured_yuv_fps": null,
+        "measured_n": 0,
+        "size": "1920x1080",
+        "record_ok": null
       }
     ]
   },
@@ -87,8 +120,26 @@
       "GPU",
       "NPU"
     ],
-    "note": "LiteRT microbench runs on PKC110 only",
-    "results": []
+    "note": "LiteRT microbench on PKC110; desktop records a CPU GEMM stub only",
+    "results": [
+      {
+        "backend": "CPU",
+        "status": "ok",
+        "first_ms": 5.210299997997936,
+        "p50_ms": 6.749599997419864,
+        "p95_ms": 7.20240000373451,
+        "stable_10min": "not_run",
+        "source": "desktop_stub"
+      },
+      {
+        "backend": "GPU",
+        "status": "unavailable_on_desktop"
+      },
+      {
+        "backend": "NPU",
+        "status": "unavailable_on_desktop"
+      }
+    ]
   },
   "arcore": {
     "available": "probe_on_device",

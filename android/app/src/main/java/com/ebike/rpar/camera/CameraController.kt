@@ -68,6 +68,12 @@ class CameraController(
         private set
     var size: Size = Size(cfg.width, cfg.height)
         private set
+    var measuredFps: Double = 0.0
+        private set
+    var measuredFpsN: Int = 0
+        private set
+    private var lastYuvTs = 0L
+    private val yuvGapsMs = ArrayList<Double>(128)
 
     fun open(surfaceTexture: SurfaceTexture?, recordDir: File?, enableRecord: Boolean) {
         close()
@@ -154,7 +160,7 @@ class CameraController(
         previewSurface?.let { surfaces += it }
         yuvReader?.surface?.let { surfaces += it }
         var recordOk = false
-        var combo = "preview+yuv"
+        var combo = streamComboLabel(false)
         var reason: String? = null
         val recSurface = if (wantRecord) recorder?.recordSurface() ?: recorder?.prepareSurface() else null
         if (wantRecord && recSurface != null && cfg.preferPreviewPlusYuvPlusRecord) {
@@ -162,7 +168,7 @@ class CameraController(
                 val all = ArrayList(surfaces).also { it += recSurface }
                 d.createCaptureSession(all, sessionCb(all, true), handler)
                 recordOk = true
-                combo = "preview+yuv+record"
+                combo = streamComboLabel(true)
                 lastChoice = StreamChoice(size, actualFps, combo, true, null)
                 lastDegrade = null
                 return
@@ -174,7 +180,7 @@ class CameraController(
         }
         try {
             d.createCaptureSession(surfaces, sessionCb(surfaces, false), handler)
-            combo = if (previewSurface != null) "preview+yuv" else "yuv"
+            combo = streamComboLabel(false)
             lastChoice = StreamChoice(size, actualFps, combo, recordOk, reason)
             lastDegrade = reason
         } catch (t: Throwable) {
@@ -289,6 +295,7 @@ class CameraController(
         val awb = result?.get(CaptureResult.CONTROL_AWB_STATE)
         val crop = if (result != null) cropFromResult(result) else null
         val sensorTs = ts ?: imageTs
+        noteYuvInterval(sensorTs)
         val meta = FrameMeta(
             frameId = frameId.incrementAndGet(),
             sensorTimestampNs = sensorTs,
@@ -320,6 +327,20 @@ class CameraController(
         )
     }
 
+    private fun noteYuvInterval(sensorTs: Long) {
+        if (lastYuvTs > 0L && sensorTs > lastYuvTs) {
+            val gap = (sensorTs - lastYuvTs) / 1e6
+            if (gap in 1.0..200.0) {
+                yuvGapsMs += gap
+                if (yuvGapsMs.size > 240) yuvGapsMs.removeAt(0)
+                val fps = com.ebike.rpar.capability.fpsFromIntervalMs(yuvGapsMs)
+                if (fps != null) measuredFps = fps
+                measuredFpsN = yuvGapsMs.size
+            }
+        }
+        lastYuvTs = sensorTs
+    }
+
     private fun availabilityFor(result: TotalCaptureResult?, imageTs: Long): Map<String, Boolean> {
         val map = HashMap<String, Boolean>()
         map["sensor_timestamp"] = result?.get(CaptureResult.SENSOR_TIMESTAMP) != null || imageTs > 0L
@@ -346,6 +367,16 @@ class CameraController(
         val n = minOf(arr.size, buf.remaining())
         buf.get(arr, 0, n)
         return YuvImageBuffer(image.width, h, arr, rowStride)
+    }
+
+    private fun streamComboLabel(includeRecord: Boolean): String {
+        val streams = when {
+            includeRecord -> "preview+yuv+record"
+            previewSurface != null -> "preview+yuv"
+            else -> "yuv"
+        }
+        val res = if (size.width == 1920 && size.height == 1080) "1080p$actualFps" else "${size.width}x${size.height}@$actualFps"
+        return "$streams@$res"
     }
 
     fun pickRearMain(): String? {
@@ -376,6 +407,10 @@ class CameraController(
         previewSurface = null
         recorder?.stop()
         recorder = null
+        lastYuvTs = 0L
+        yuvGapsMs.clear()
+        measuredFps = 0.0
+        measuredFpsN = 0
         thread?.quitSafely()
         thread = null
         handler = null

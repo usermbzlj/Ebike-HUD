@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0",
+  "gates": [
+    {
+      "alias": "day_25007",
+      "lighting": "day",
+      "checks": {
+        "overlay_ok": true,
+        "has_frames": true,
+        "day_road_polygon": true
+      },
+      "pass": true,
+      "n_confirmed_tracks": 0,
+      "n_alerts_fired": 0,
+      "confirmed_per_min": 0.0,
+      "road_frame_share": 1.0,
+      "spec_solid_fp_per_min": 0.5,
+      "note": "Night confirmed==0 is a false-positive proxy on the smooth-asphalt clip, not GT first-confirm."
+    },
+    {
+      "alias": "extra",
+      "lighting": "day",
+      "checks": {
+        "overlay_ok": true,
+        "has_frames": true
+      },
+      "pass": true,
+      "n_confirmed_tracks": 0,
+      "n_alerts_fired": 0,
+      "confirmed_per_min": 0.0,
+      "road_frame_share": 1.0,
+      "spec_solid_fp_per_min": null,
+      "note": "Night confirmed==0 is a false-positive proxy on the smooth-asphalt clip, not GT first-confirm."
+    },
+    {
+      "alias": "night_25013",
+      "lighting": "night",
+      "checks": {
+        "overlay_ok": true,
+        "has_frames": true,
+        "night_no_confirmed_tracks": true,
+        "night_no_alerts": true,
+        "night_no_rough_broken": true
+      },
+      "pass": true,
+      "n_confirmed_tracks": 0,
+      "n_alerts_fired": 0,
+      "confirmed_per_min": 0.0,
+      "road_frame_share": 1.0,
+      "spec_solid_fp_per_min": 1.0,
+      "note": "Night confirmed==0 is a false-positive proxy on the smooth-asphalt clip, not GT first-confirm."
+    }
+  ],
+  "pass": true,
+  "n_clips": 3,
+  "not_claimed": [
+    "first_confirm_distance_with_geometric_GT",
+    "PKC110_Camera2_1080p60_SDR",
+    "10h_false_voice_rate",
+    "60min_thermal_no_crash"
+  ],
+  "note": "M2 software gates on local Video/ transcodes. Spec 11.2 distance/recall still need PKC110 + GT."
+}

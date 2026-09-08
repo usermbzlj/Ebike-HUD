@@ -34,6 +34,8 @@
 
 `Video/` 里的实拍片段按时长对齐规格附录样本（约 68.8 s 白天、约 55.0 s 夜间）。当前文件是 960×540 / 1280×720 @30 fps 转码，不是 PKC110 Camera2 1080p60 SDR 分析流。
 
+能力探测会按 Camera2 最小帧时长列出 30/60 候选，并用 YUV 时间戳中位数报实测 FPS。16.67 ms 时长不再截断成 59 fps。PKC110 上的成功组合、实测帧率和 60 min 热稳定仍须在真机点「能力探测」后写入 `capability_report.json`。
+
 公开路面病害数据（摩托视角坑、远距小坑、井盖、夜间驾驶分割等）只作预训练/教师/hard negative 参考，不能替代 PKC110 自采 session，也不能直接拼成一个检测类别表。见 `docs/DATASETS.md`。
 
 手机可将 `models/roadseg-field-0.1.0/seg_weights.json` 作为双尺度道路/遮挡 sidecar（YOLOPv2 教师蒸馏，不是坑洞网）。无该文件时保持启发式道路兜底。
