@@ -67,6 +67,9 @@ class MountProfile:
     near_reference_m: float
     horizon_y_px: float
     vehicle_centerline_x_px: float
+    known_distance_5m_px: float | None = None
+    known_distance_10m_px: float | None = None
+    known_distance_20m_px: float | None = None
     calibration_hash: str = ""
     valid: bool = True
 

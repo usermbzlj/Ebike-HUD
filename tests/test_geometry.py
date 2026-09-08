@@ -37,3 +37,31 @@ def test_distance_rounding_rules():
     assert geo.display_distance(7.4, True, 0.8) == "7 m"
     txt = geo.display_distance(17.0, True, 0.8)
     assert txt and "约" in txt
+
+
+def test_known_distance_fit_recovers_pitch():
+    from rpar.geometry import fit_mount_from_distance_markers
+    from rpar.transforms import project_vehicle_point
+
+    k = default_intrinsics()
+    truth = default_mount()
+    markers = []
+    for d in (5.0, 10.0, 20.0):
+        uv = project_vehicle_point(np.array([0.0, d, 0.0]), truth, k)
+        assert uv is not None
+        markers.append((d, float(uv[1])))
+    skewed = default_mount()
+    skewed.pitch_deg = 14.0
+    skewed.camera_height_m = 1.35
+    skewed.valid = False
+    fitted = fit_mount_from_distance_markers(skewed, k, markers)
+    assert abs(fitted.pitch_deg - truth.pitch_deg) < 1.5
+    assert abs(fitted.camera_height_m - truth.camera_height_m) < 0.2
+    assert fitted.valid is True
+
+
+def test_health_check_hides_distance_on_bad_horizon():
+    geo = GeometryEngine(default_mount(), GeometryConfig(), default_intrinsics())
+    ok = geo.health_check(0.0, 0.0, horizon_y_px=20.0)
+    assert ok is False
+    assert geo.valid is False

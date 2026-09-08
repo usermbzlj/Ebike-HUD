@@ -125,6 +125,49 @@ object Transforms {
         return maxErr
     }
 
+    fun projectedHorizonY(mount: MountProfile, k: Intrinsics): Double? {
+        val uv = projectVehiclePoint(doubleArrayOf(0.0, 80.0, 0.0), mount, k) ?: return null
+        return uv[1]
+    }
+
+    fun fitMountFromDistanceMarkers(
+        mount: MountProfile,
+        k: Intrinsics,
+        markers: List<Pair<Double, Double>>,
+    ): MountProfile {
+        if (markers.size < 2) return mount
+        var bestPitch = mount.pitchDeg
+        var bestHeight = mount.cameraHeightM
+        var bestErr = Double.POSITIVE_INFINITY
+        var pitch = mount.pitchDeg - 8.0
+        while (pitch <= mount.pitchDeg + 8.0 + 1e-6) {
+            var height = maxOf(0.55, mount.cameraHeightM - 0.45)
+            val hMax = mount.cameraHeightM + 0.45
+            while (height <= hMax + 1e-6) {
+                val trial = mount.copy(pitchDeg = pitch, cameraHeightM = height)
+                var err = 0.0
+                var ok = true
+                for ((distM, yPx) in markers) {
+                    val uv = projectVehiclePoint(doubleArrayOf(0.0, distM, 0.0), trial, k)
+                    if (uv == null) {
+                        ok = false
+                        break
+                    }
+                    val d = uv[1] - yPx
+                    err += d * d
+                }
+                if (ok && err < bestErr) {
+                    bestErr = err
+                    bestPitch = pitch
+                    bestHeight = height
+                }
+                height += 0.05
+            }
+            pitch += 0.5
+        }
+        return mount.copy(pitchDeg = bestPitch, cameraHeightM = bestHeight, valid = true)
+    }
+
     fun defaultIntrinsics(width: Int = 1920, height: Int = 1080, hfovDeg: Double = 68.0): Intrinsics {
         val fx = (width / 2.0) / tan(deg2rad(hfovDeg) / 2.0)
         return Intrinsics(fx, fx, width / 2.0, height / 2.0, width, height, true)

@@ -68,10 +68,15 @@ class RealtimePipeline:
         self.last_view: PerceptionView | None = None
         self.last_quality: FrameQualityMap | None = None
         self.last_observations: list = []
+        self.did_infer = False
         self.infer_count = 0
         self.frame_count = 0
         self.dropped_infer = 0
         self.thermal_c: float | None = None
+        self.thermal_reason: str | None = None
+        self.skip_far_roi = False
+        self.status_events: list[dict] = []
+        self._last_status: PerceptionStatus | None = None
         self._last_infer_ns = 0
         self._infer_period_ns = int(1e9 / max(cfg.runtime.infer_fps, 1.0))
         self._base_infer_period_ns = self._infer_period_ns
@@ -83,16 +88,53 @@ class RealtimePipeline:
         self.bad_streak_s = 0.0
         self.status = PerceptionStatus.NORMAL
         self.last_observations = []
+        self.did_infer = False
         self._infer_period_ns = self._base_infer_period_ns
+        self.thermal_reason = None
+        self.skip_far_roi = False
+        self.status_events = []
+        self._last_status = None
 
     def _apply_thermal(self) -> None:
-        """NFR-007: drop far-ROI / infer rate before touching preview."""
-        if self.thermal_c is not None and self.thermal_c >= 42.0:
-            self._infer_period_ns = int(1e9 / max(self.cfg.runtime.thermal_min_infer_fps, 1.0))
-            if self.status == PerceptionStatus.NORMAL:
-                self.status = PerceptionStatus.THERMAL_THROTTLE
-        else:
+        """NFR-007: drop far-ROI then infer rate before touching preview."""
+        prev = self.thermal_reason
+        if self.thermal_c is None or self.thermal_c < 42.0:
             self._infer_period_ns = self._base_infer_period_ns
+            self.skip_far_roi = False
+            self.thermal_reason = None
+        elif self.thermal_c >= 45.0:
+            self.skip_far_roi = True
+            self._infer_period_ns = int(1e9 / max(self.cfg.runtime.thermal_min_infer_fps, 1.0))
+            self.thermal_reason = "THERMAL_DROP_INFER_HZ"
+        elif self.thermal_c >= 43.0:
+            self.skip_far_roi = True
+            self._infer_period_ns = self._base_infer_period_ns
+            self.thermal_reason = "THERMAL_DROP_FAR_ROI"
+        else:
+            self.skip_far_roi = False
+            slowed = max(self.cfg.runtime.thermal_min_infer_fps, self.cfg.runtime.infer_fps * 0.7)
+            self._infer_period_ns = int(1e9 / max(slowed, 1.0))
+            self.thermal_reason = "THERMAL_DROP_INFER_HZ"
+        if hasattr(self.engine, "skip_far_roi"):
+            self.engine.skip_far_roi = self.skip_far_roi
+        if prev != self.thermal_reason and self.thermal_reason:
+            self.status_events.append(
+                {"domain": "NFR", "code": self.thermal_reason, "detail": f"thermal_c={self.thermal_c}"}
+            )
+
+    def _note_status(self) -> None:
+        if self._last_status == self.status:
+            return
+        code = {
+            PerceptionStatus.PERCEPTION_LIMITED: "PERCEPTION_LIMITED",
+            PerceptionStatus.LENS_CONTAMINATION: "LENS_CONTAMINATION",
+            PerceptionStatus.OCCLUDED: "OCCLUDED",
+            PerceptionStatus.SEVERE_BLUR: "SEVERE_BLUR",
+            PerceptionStatus.THERMAL_THROTTLE: self.thermal_reason or "THERMAL_THROTTLE",
+        }.get(self.status)
+        if code:
+            self.status_events.append({"domain": "QUAL", "code": code, "detail": self.status.value})
+        self._last_status = self.status
 
     def set_alerts_enabled(self, enabled: bool) -> None:
         self.alerts.set_enabled(enabled)
@@ -114,6 +156,7 @@ class RealtimePipeline:
         self.status = perception_status(sel_q, self.bad_streak_s)
         if self.thermal_c is not None and self.thermal_c >= 42.0 and self.status == PerceptionStatus.NORMAL:
             self.status = PerceptionStatus.THERMAL_THROTTLE
+        self._note_status()
         self.last_quality = sel_q
 
         allow_new = fresh and sel_q.global_quality.usable and self.status not in {
@@ -130,14 +173,17 @@ class RealtimePipeline:
             result = self.engine.infer(sel_frame, sel_q)
             observations = result.observations
             self.last_observations = observations
+            self.did_infer = True
             backend = result.backend
             infer_ms = result.latency_ms
-            dual = result.dual_scale
+            dual = result.dual_scale and not self.skip_far_roi
             self._last_infer_ns = t0
             self.infer_count += 1
             self._infer_times.append(t0)
         else:
             self.dropped_infer += 1
+            self.last_observations = []
+            self.did_infer = False
 
         tracks = self.tracker.update(
             observations,

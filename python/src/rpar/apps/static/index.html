@@ -85,6 +85,9 @@
         <div class="ctrl">
           <button id="play">播放</button>
           <button id="step">逐帧</button>
+          <button id="pause">暂停帧</button>
+          <button id="shot">截图</button>
+          <button id="mark">事件标记</button>
           <button id="reset">重置</button>
           <button id="mode">研究模式</button>
           <button id="alerts">提醒开</button>
@@ -166,6 +169,18 @@
       else clearInterval(timer);
     };
     $("step").onclick = () => tick();
+    $("pause").onclick = async () => {
+      const r = await fetch("/api/pause", {method:"POST"}).then(x => x.json());
+      $("pause").textContent = r.paused ? "继续帧" : "暂停帧";
+    };
+    $("shot").onclick = async () => {
+      const r = await fetch("/api/screenshot", {method:"POST"}).then(x => x.json());
+      $("alertLine").textContent = "截图 " + (r.path || r.detail);
+    };
+    $("mark").onclick = async () => {
+      const r = await fetch("/api/mark?note=manual", {method:"POST"}).then(x => x.json());
+      $("alertLine").textContent = "已标记 " + (r.note || "");
+    };
     $("reset").onclick = async () => { await fetch("/api/reset?night=" + night, {method:"POST"}); tick(); };
     $("mode").onclick = async () => {
       ui = ui === "RESEARCH" ? "RIDING" : "RESEARCH";

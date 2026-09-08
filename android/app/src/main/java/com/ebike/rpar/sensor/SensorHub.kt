@@ -45,10 +45,14 @@ class SensorHub(
     private var gyroCount = 0; private var accelCount = 0; private var rvCount = 0
     private var rateWindowNs = 0L
     private val gyroGapsMs = ArrayList<Double>(512)
+    private val accelGapsMs = ArrayList<Double>(512)
+    private val rvGapsMs = ArrayList<Double>(512)
 
     fun intervalJson(): org.json.JSONObject {
-        val s = gyroGapsMs.sorted()
-        fun pct(p: Double): Double {
+        val g = gyroGapsMs.sorted()
+        val a = accelGapsMs.sorted()
+        val r = rvGapsMs.sorted()
+        fun pct(s: List<Double>, p: Double): Double {
             if (s.isEmpty()) return 0.0
             val i = ((p / 100.0) * (s.size - 1)).toInt().coerceIn(0, s.lastIndex)
             return s[i]
@@ -57,10 +61,18 @@ class SensorHub(
             .put("gyro_hz", gyroHz)
             .put("accel_hz", accelHz)
             .put("rv_hz", rvHz)
-            .put("gyro_gap_p5_ms", pct(5.0))
-            .put("gyro_gap_p50_ms", pct(50.0))
-            .put("gyro_gap_p95_ms", pct(95.0))
-            .put("n", s.size)
+            .put("gyro_gap_p5_ms", pct(g, 5.0))
+            .put("gyro_gap_p50_ms", pct(g, 50.0))
+            .put("gyro_gap_p95_ms", pct(g, 95.0))
+            .put("accel_gap_p5_ms", pct(a, 5.0))
+            .put("accel_gap_p50_ms", pct(a, 50.0))
+            .put("accel_gap_p95_ms", pct(a, 95.0))
+            .put("rv_gap_p5_ms", pct(r, 5.0))
+            .put("rv_gap_p50_ms", pct(r, 50.0))
+            .put("rv_gap_p95_ms", pct(r, 95.0))
+            .put("n_gyro", g.size)
+            .put("n_accel", a.size)
+            .put("n_rv", r.size)
     }
 
     fun start() {
@@ -112,11 +124,19 @@ class SensorHub(
             }
             Sensor.TYPE_ACCELEROMETER -> {
                 accelCount++
+                if (lastAccelNs != 0L) {
+                    accelGapsMs += (ts - lastAccelNs) / 1e6
+                    if (accelGapsMs.size > 4000) accelGapsMs.removeAt(0)
+                }
                 lastAccelNs = ts
                 push(accel, ImuSample(ts, SensorType.ACCEL, v[0].toDouble(), v[1].toDouble(), v[2].toDouble(), event.accuracy, accelHz))
             }
             Sensor.TYPE_ROTATION_VECTOR -> {
                 rvCount++
+                if (lastRvNs != 0L) {
+                    rvGapsMs += (ts - lastRvNs) / 1e6
+                    if (rvGapsMs.size > 4000) rvGapsMs.removeAt(0)
+                }
                 lastRvNs = ts
                 val fq = FloatArray(4)
                 SensorManager.getQuaternionFromVector(fq, event.values)

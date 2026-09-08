@@ -17,6 +17,7 @@ import com.ebike.rpar.model.SCHEMA_VERSION
 import com.ebike.rpar.model.SynchronizedFrame
 import com.ebike.rpar.model.TrackedRoadObject
 import com.ebike.rpar.model.UiMode
+import com.ebike.rpar.perception.HeuristicEngine
 import com.ebike.rpar.perception.NoOpEngine
 import com.ebike.rpar.perception.PerceptionEngine
 import com.ebike.rpar.quality.GrayImage
@@ -42,11 +43,15 @@ class RealtimePipeline(
     var badStreakS = 0.0
     var status: PerceptionStatus = PerceptionStatus.NORMAL
     var lastView: PerceptionView? = null
+    var lastObservations: List<com.ebike.rpar.model.RoadObservation> = emptyList()
+    var didInfer: Boolean = false
     var inferCount = 0
     var frameCount = 0
     var droppedInfer = 0
     var runMode: RunMode = RunMode.REALTIME_PERCEPTION
     var thermalC: Double? = null
+    var thermalReason: String? = null
+    var skipFarRoi: Boolean = false
     var recSeconds: Double = 0.0
     var nightPalette: Boolean = false
     var researchHeatmap: Boolean = true
@@ -55,6 +60,37 @@ class RealtimePipeline(
     private var lastInferNs = 0L
     private var inferPeriodNs = (1e9 / maxOf(cfg.runtime.inferFps, 1.0)).toLong()
     private val baseInferPeriodNs = inferPeriodNs
+    private var lastStatus: PerceptionStatus = PerceptionStatus.NORMAL
+
+    private fun applyThermal() {
+        val prev = thermalReason
+        val t = thermalC
+        if (t == null || t < 42.0) {
+            inferPeriodNs = baseInferPeriodNs
+            skipFarRoi = false
+            thermalReason = null
+        } else if (t >= 45.0) {
+            skipFarRoi = true
+            inferPeriodNs = (1e9 / maxOf(cfg.runtime.thermalMinInferFps, 1.0)).toLong()
+            thermalReason = "THERMAL_DROP_INFER_HZ"
+        } else if (t >= 43.0) {
+            skipFarRoi = true
+            inferPeriodNs = baseInferPeriodNs
+            thermalReason = "THERMAL_DROP_FAR_ROI"
+        } else {
+            skipFarRoi = false
+            val slowed = maxOf(cfg.runtime.thermalMinInferFps, cfg.runtime.inferFps * 0.7)
+            inferPeriodNs = (1e9 / maxOf(slowed, 1.0)).toLong()
+            thermalReason = "THERMAL_DROP_INFER_HZ"
+        }
+        val he = engine as? HeuristicEngine
+        if (he != null) he.skipFarRoi = skipFarRoi
+        if (prev != thermalReason && thermalReason != null) {
+            lastThermalEvent = thermalReason
+        }
+    }
+    var lastThermalEvent: String? = null
+    var lastStatusEvent: String? = null
 
     fun reset() {
         tracker.reset()
@@ -62,6 +98,12 @@ class RealtimePipeline(
         lastNs = null
         badStreakS = 0.0
         status = PerceptionStatus.NORMAL
+        lastObservations = emptyList()
+        didInfer = false
+        thermalReason = null
+        skipFarRoi = false
+        inferPeriodNs = baseInferPeriodNs
+        lastStatus = PerceptionStatus.NORMAL
     }
 
     fun setSafe(safe: Boolean) {
@@ -73,11 +115,7 @@ class RealtimePipeline(
         val dt = if (lastNs == null) 1.0 / 60.0 else maxOf(1e-3, (t0 - lastNs!!) / 1e9)
         lastNs = t0
         frameCount++
-        if (thermalC != null && thermalC!! >= 42.0) {
-            inferPeriodNs = (1e9 / maxOf(cfg.runtime.thermalMinInferFps, 1.0)).toLong()
-        } else {
-            inferPeriodNs = baseInferPeriodNs
-        }
+        applyThermal()
 
         val gray = when {
             frame.yuv != null -> GrayImage.fromYuv(frame.yuv, 480)
@@ -95,6 +133,17 @@ class RealtimePipeline(
         if (thermalC != null && thermalC!! >= 42.0 && status == PerceptionStatus.NORMAL) {
             status = PerceptionStatus.THERMAL_THROTTLE
         }
+        if (lastStatus != status) {
+            lastStatusEvent = when (status) {
+                PerceptionStatus.PERCEPTION_LIMITED -> "PERCEPTION_LIMITED"
+                PerceptionStatus.LENS_CONTAMINATION -> "LENS_CONTAMINATION"
+                PerceptionStatus.OCCLUDED -> "OCCLUDED"
+                PerceptionStatus.SEVERE_BLUR -> "SEVERE_BLUR"
+                PerceptionStatus.THERMAL_THROTTLE -> thermalReason ?: "THERMAL_THROTTLE"
+                else -> null
+            }
+            lastStatus = status
+        }
         val allowNew = sel.fresh && sel.q.globalQuality.usable && status !in setOf(
             PerceptionStatus.SEVERE_BLUR, PerceptionStatus.PERCEPTION_LIMITED, PerceptionStatus.LENS_CONTAMINATION,
         )
@@ -109,12 +158,18 @@ class RealtimePipeline(
             observations = result.observations
             backend = result.backend
             inferMs = result.latencyMs
-            dual = result.dualScale
+            dual = result.dualScale && !skipFarRoi
             lastInferNs = t0
             inferCount++
             inferTimes.addLast(t0)
             while (inferTimes.size > 40) inferTimes.removeFirst()
-        } else droppedInfer++
+            lastObservations = observations
+            didInfer = true
+        } else {
+            droppedInfer++
+            lastObservations = emptyList()
+            didInfer = false
+        }
 
         val tracks = tracker.update(observations, t0, allowNewHighConf = allowNew, qualityOk = allowNew, dtS = dt)
         var speed = frame.speedMps ?: frame.location?.speedMps

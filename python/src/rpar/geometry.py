@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from dataclasses import replace
 
 import numpy as np
 
@@ -42,15 +43,40 @@ class GeometryEngine:
         self.valid = bool(mount.valid)
         self.invalid_reason = None if mount.valid else "no_mount_profile"
 
-    def health_check(self, pitch_err_deg: float = 0.0, roll_err_deg: float = 0.0) -> bool:
+    def health_check(
+        self,
+        pitch_err_deg: float = 0.0,
+        roll_err_deg: float = 0.0,
+        horizon_y_px: float | None = None,
+    ) -> bool:
         ok = abs(pitch_err_deg) <= self.cfg.pitch_health_deg and abs(roll_err_deg) <= self.cfg.roll_health_deg
+        expected_h = projected_horizon_y(self.mount, self.k)
+        if ok and horizon_y_px is not None and expected_h is not None and abs(horizon_y_px - expected_h) > 48:
+            ok = False
         if not ok:
             self.valid = False
             self.invalid_reason = "install_health_fail"
         elif self.mount.valid:
             self.valid = True
             self.invalid_reason = None
+        else:
+            self.valid = False
+            self.invalid_reason = "no_mount_profile"
         return self.valid
+
+    def apply_known_distance_markers(self) -> MountProfile:
+        markers = []
+        if self.mount.known_distance_5m_px is not None:
+            markers.append((5.0, float(self.mount.known_distance_5m_px)))
+        if self.mount.known_distance_10m_px is not None:
+            markers.append((10.0, float(self.mount.known_distance_10m_px)))
+        if self.mount.known_distance_20m_px is not None:
+            markers.append((20.0, float(self.mount.known_distance_20m_px)))
+        if len(markers) < 2:
+            return self.mount
+        fitted = fit_mount_from_distance_markers(self.mount, self.k, markers)
+        self.set_mount(fitted, self.k)
+        return fitted
 
     def contact_to_road(self, uv: tuple[float, float]) -> np.ndarray | None:
         xy = pixel_to_ground(np.array(uv, dtype=np.float64), self.mount, self.k)
@@ -170,6 +196,40 @@ class GeometryEngine:
                 return []
             pix.append((float(uv[0]), float(uv[1])))
         return pix
+
+
+def projected_horizon_y(mount: MountProfile, k: Intrinsics) -> float | None:
+    uv = project_vehicle_point(np.array([0.0, 80.0, 0.0]), mount, k)
+    return None if uv is None else float(uv[1])
+
+
+def fit_mount_from_distance_markers(
+    mount: MountProfile,
+    k: Intrinsics,
+    markers: list[tuple[float, float]],
+) -> MountProfile:
+    """CAL-003: fit pitch and height so (0, d, 0) projects to the measured pixel Y."""
+    if len(markers) < 2:
+        return mount
+    best = (mount.pitch_deg, mount.camera_height_m)
+    best_err = float("inf")
+    for pitch in np.linspace(mount.pitch_deg - 8.0, mount.pitch_deg + 8.0, 33):
+        for height in np.linspace(max(0.55, mount.camera_height_m - 0.45), mount.camera_height_m + 0.45, 19):
+            trial = replace(mount, pitch_deg=float(pitch), camera_height_m=float(height))
+            err = 0.0
+            ok = True
+            for dist_m, y_px in markers:
+                uv = project_vehicle_point(np.array([0.0, dist_m, 0.0]), trial, k)
+                if uv is None:
+                    ok = False
+                    break
+                err += (float(uv[1]) - float(y_px)) ** 2
+            if not ok:
+                continue
+            if err < best_err:
+                best_err = err
+                best = (float(pitch), float(height))
+    return replace(mount, pitch_deg=best[0], camera_height_m=best[1], valid=True)
 
 
 def should_mark_passed(tr: TrackInternal, dist: float | None, prev_dist: float | None, near_m: float) -> bool:

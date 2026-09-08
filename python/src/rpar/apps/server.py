@@ -55,6 +55,7 @@ class DemoState:
         self.replay: SessionReplay | None = None
         self.replay_index = 0
         self.last_replay_jpeg: bytes | None = None
+        self.paused = False
         self.reset()
 
     def reset(self) -> None:
@@ -78,6 +79,10 @@ class DemoState:
 
     def step_one(self) -> dict[str, Any]:
         assert self.sim and self.pipe
+        if self.paused and self.last_view is not None:
+            payload = dict(self.last_view)
+            payload["paused"] = True
+            return payload
         if self.index >= self.sim.n_frames():
             self.index = 0
             self.pipe.reset()
@@ -109,6 +114,8 @@ class DemoState:
             "alerts_enabled": self.alerts_enabled,
             "night": self.night,
             "geometry_valid": self.pipe.geometry.valid,
+            "paused": self.paused,
+            "degrade_reason": view.quality.degrade_reason if view.quality else None,
         }
         self.last_view = payload
         self.timeline.append(payload)
@@ -150,6 +157,45 @@ def create_app() -> FastAPI:
             if STATE.pipe:
                 STATE.pipe.set_alerts_enabled(STATE.alerts_enabled)
         return {"ui": STATE.ui.value, "alerts": STATE.alerts_enabled}
+
+    @app.post("/api/pause")
+    def pause(on: bool | None = None) -> dict[str, Any]:
+        with STATE.lock:
+            STATE.paused = (not STATE.paused) if on is None else bool(on)
+        return {"paused": STATE.paused}
+
+    @app.post("/api/screenshot")
+    def screenshot() -> dict[str, Any]:
+        ART.mkdir(parents=True, exist_ok=True)
+        dest = ART / "screenshots"
+        dest.mkdir(parents=True, exist_ok=True)
+        with STATE.lock:
+            data = STATE.last_jpeg
+        if not data:
+            raise HTTPException(status_code=404, detail="no_frame")
+        path = dest / f"frame_{STATE.index:05d}.jpg"
+        path.write_bytes(data)
+        return {"ok": True, "path": str(path)}
+
+    @app.post("/api/mark")
+    def mark(note: str = "manual") -> dict[str, Any]:
+        ART.mkdir(parents=True, exist_ok=True)
+        with STATE.lock:
+            ts = STATE.last_view.get("t") if STATE.last_view else None
+            frame_id = STATE.index
+            if STATE.replay is not None:
+                marks = STATE.replay.root / "events" / "marks.jsonl"
+                marks.parent.mkdir(parents=True, exist_ok=True)
+                marks.open("a", encoding="utf-8").write(
+                    json.dumps({"timestamp_ns": None, "t": ts, "frame_id": frame_id, "note": note}) + "\n"
+                )
+                path = marks
+            else:
+                path = ART / "marks.jsonl"
+                path.open("a", encoding="utf-8").write(
+                    json.dumps({"t": ts, "frame_id": frame_id, "note": note}) + "\n"
+                )
+        return {"ok": True, "path": str(path), "note": note}
 
     @app.get("/api/step")
     def step() -> JSONResponse:

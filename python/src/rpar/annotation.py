@@ -56,7 +56,12 @@ def tracks_to_annotation_task(tracks_jsonl: Path, out_path: Path) -> dict[str, A
                 "井盖必须 semantic_type=manhole_cover，是否异常由 geometry/state 决定",
                 "平整修补标 repair_patch + flat + normal（hard negative）",
                 "无法判断凹凸时标 unknown_anomaly + unknown",
+                "严重度必须记录当前速度范围和可见性",
+                "同一物理对象跨帧属性一致，可见性可逐帧变化",
+                "争议样本进入 review 队列",
+                "训练/验证/测试按完整会话隔离，禁止相邻帧泄漏",
             ],
+            "doc": "docs/ANNOTATION.md",
         },
         "items": items,
     }

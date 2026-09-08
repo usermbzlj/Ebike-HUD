@@ -102,8 +102,10 @@ fun CalibrationScreen(runtime: RparRuntime) {
                 OutlinedTextField(yaw, { yaw = it }, label = { Text("偏航 deg") })
                 Row {
                     Button(onClick = {
-                        val pErr = roll.toDoubleOrNull() ?: 0.0
-                        val rErr = pitch.toDoubleOrNull()?.let { kotlin.math.abs(it - 18.0) } ?: 0.0
+                        val pitchVal = pitch.toDoubleOrNull() ?: 18.0
+                        val rollVal = roll.toDoubleOrNull() ?: 0.0
+                        val pErr = kotlin.math.abs(pitchVal - 18.0)
+                        val rErr = kotlin.math.abs(rollVal)
                         val (ok, why) = runtime.calibration.health(
                             Transforms.defaultMount(), pErr, rErr,
                             runtime.cfg.geometry.pitchHealthDeg, runtime.cfg.geometry.rollHealthDeg,

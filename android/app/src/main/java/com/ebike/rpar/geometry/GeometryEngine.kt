@@ -28,16 +28,32 @@ class GeometryEngine(
         invalidReason = if (mount.valid) null else "no_mount_profile"
     }
 
-    fun healthCheck(pitchErrDeg: Double = 0.0, rollErrDeg: Double = 0.0): Boolean {
-        val ok = abs(pitchErrDeg) <= cfg.pitchHealthDeg && abs(rollErrDeg) <= cfg.rollHealthDeg
+    fun healthCheck(pitchErrDeg: Double = 0.0, rollErrDeg: Double = 0.0, horizonYPx: Double? = null): Boolean {
+        var ok = abs(pitchErrDeg) <= cfg.pitchHealthDeg && abs(rollErrDeg) <= cfg.rollHealthDeg
+        val expected = Transforms.projectedHorizonY(mount, k)
+        if (ok && horizonYPx != null && expected != null && abs(horizonYPx - expected) > 48) ok = false
         if (!ok) {
             valid = false
             invalidReason = "install_health_fail"
         } else if (mount.valid) {
             valid = true
             invalidReason = null
+        } else {
+            valid = false
+            invalidReason = "no_mount_profile"
         }
         return valid
+    }
+
+    fun applyKnownDistanceMarkers(): MountProfile {
+        val markers = ArrayList<Pair<Double, Double>>()
+        mount.knownDistance5mPx?.let { markers += 5.0 to it }
+        mount.knownDistance10mPx?.let { markers += 10.0 to it }
+        mount.knownDistance20mPx?.let { markers += 20.0 to it }
+        if (markers.size < 2) return mount
+        val fitted = Transforms.fitMountFromDistanceMarkers(mount, k, markers)
+        setMount(fitted, k)
+        return fitted
     }
 
     fun contactToRoad(uv: Pair<Float, Float>): DoubleArray? {

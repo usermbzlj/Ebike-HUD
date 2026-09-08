@@ -88,9 +88,16 @@ def record_simulated_session(
                 "backend": view.backend.value,
                 "degrade_reason": view.quality.degrade_reason if view.quality else None,
                 "selected_for_infer": view.quality.selected_for_infer if view.quality else None,
+                "selected_age_ms": view.quality.selected_age_ms if view.quality else None,
+                "occupancy_occluded_ratio": view.quality.occupancy_occluded_ratio if view.quality else None,
+                "sharpness": view.quality.global_quality.sharpness if view.quality else None,
+                "inferred": pipe.did_infer,
                 "thermal_c": view.thermal_c,
+                "thermal_reason": pipe.thermal_reason,
+                "skip_far_roi": pipe.skip_far_roi,
+                "dropped_infer": pipe.dropped_infer,
             },
-            observations=[o.to_dict() for o in pipe.last_observations],
+            observations=[o.to_dict() for o in pipe.last_observations] if pipe.did_infer else None,
         )
         vis = compose(frame.bgr, view, ui_mode)
         ov.write(vis)
@@ -101,6 +108,9 @@ def record_simulated_session(
         for bundle in done:
             clip_i += 1
             write_event_clip(bundle, root / "events" / "clips" / f"clip_{clip_i:03d}.mp4", fps)
+        for ev in pipe.status_events:
+            writer.write_event(ev)
+        pipe.status_events.clear()
         t0 = i / fps
         t1 = (i + 1) / fps
         n = max(1, int(imu_hz / fps))

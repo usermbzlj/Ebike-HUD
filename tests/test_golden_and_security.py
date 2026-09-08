@@ -4,7 +4,7 @@ from pathlib import Path
 
 from rpar.config import load_config
 from rpar.enums import ALERT_FORBIDDEN_PHRASES
-from rpar.golden import run_simulator_golden
+from rpar.golden import run_acceptance_suite, run_simulator_golden
 from rpar.ml.train import split_sessions
 from rpar.simulator import SimConfig
 
@@ -40,3 +40,11 @@ def test_golden_simulator_smoke(tmp_path: Path):
     assert metrics["frames"] >= 30
     assert metrics["overlay_ok"] is True
     assert metrics["p95_latency_ms"] >= 0
+
+
+def test_acceptance_includes_night_and_wet(tmp_path: Path):
+    report = run_acceptance_suite(tmp_path / "accept", load_config())
+    assert "night" in report["slices"]
+    assert "wet" in report["slices"]
+    assert report["slices"]["night"]["overlay_ok"] is True
+    assert report["slices"]["wet"]["overlay_ok"] is True

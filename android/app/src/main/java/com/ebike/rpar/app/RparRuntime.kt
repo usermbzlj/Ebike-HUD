@@ -67,6 +67,8 @@ data class UiState(
     val researchHeatmap: Boolean = true,
     val dampingArm: String? = null,
     val dampingNote: String = "",
+    val paused: Boolean = false,
+    val lastMark: String = "",
 )
 
 class RparRuntime(private val app: android.app.Application) {
@@ -209,6 +211,16 @@ class RparRuntime(private val app: android.app.Application) {
         recStartElapsed = SystemClock.elapsedRealtime()
         val mount = calibration.loadActive(cfg.camera.width, cfg.camera.height)
         pipeline.geometry.setMount(mount, Transforms.defaultIntrinsics(cfg.camera.width, cfg.camera.height))
+        if (listOf(mount.knownDistance5mPx, mount.knownDistance10mPx, mount.knownDistance20mPx).count { it != null } >= 2) {
+            pipeline.geometry.applyKnownDistanceMarkers()
+        }
+        if (mount.valid) {
+            val ok = pipeline.geometry.healthCheck(0.0, 0.0, mount.horizonYPx)
+            if (!ok) diagnostics.event("CAL", "install_health_fail", pipeline.geometry.invalidReason ?: "horizon")
+        } else {
+            pipeline.geometry.valid = false
+            diagnostics.event("CAL", "no_mount_profile", "hide_distance")
+        }
         pipeline.reset()
         pipeline.runMode = _ui.value.runMode
         pipeline.nightPalette = _ui.value.nightPalette
@@ -253,10 +265,29 @@ class RparRuntime(private val app: android.app.Application) {
         if (Build.VERSION.SDK_INT >= 26) app.startForegroundService(svc) else app.startService(svc)
     }
 
+    fun togglePause() {
+        _ui.value = _ui.value.copy(paused = !_ui.value.paused)
+    }
+
+    fun screenshot(): java.io.File? {
+        val bmp = latestBitmap ?: return null
+        val dir = File(app.filesDir, "screenshots").also { it.mkdirs() }
+        val f = File(dir, "frame_${SystemClock.elapsedRealtime()}.jpg")
+        f.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, it) }
+        return f
+    }
+
+    fun markEvent(note: String = "manual") {
+        val ts = _ui.value.view?.timestampNs ?: SystemClock.elapsedRealtimeNanos()
+        writer?.writeMark(ts, note)
+        _ui.value = _ui.value.copy(lastMark = note)
+    }
+
     fun stopCapture() {
         testPattern.stop()
         camera.close()
         sensors.stop()
+        writer?.writeImuIntervals(sensors.intervalJson())
         writer?.finalize(SystemClock.elapsedRealtimeNanos())
         writer = null
         clips = null
@@ -381,11 +412,20 @@ class RparRuntime(private val app: android.app.Application) {
         scope.launch {
             mutex.withLock {
                 if (_ui.value.emergency && fromCamera) return@withLock
+                if (_ui.value.paused) return@withLock
                 val frame = sync.attach(raw)
                 latestBitmap = frame.bitmap
                 pipeline.thermalC = sensors.thermalC
                 pipeline.recSeconds = (SystemClock.elapsedRealtime() - recStartElapsed) / 1000.0
                 val view = pipeline.step(frame, _ui.value.uiMode)
+                pipeline.lastStatusEvent?.let {
+                    diagnostics.event("QUAL", it, pipeline.status.wire)
+                    pipeline.lastStatusEvent = null
+                }
+                pipeline.lastThermalEvent?.let {
+                    diagnostics.event("NFR", it, "thermal_c=${sensors.thermalC}")
+                    pipeline.lastThermalEvent = null
+                }
                 clips?.push(frame.meta.sensorTimestampNs, frame.bitmap)
                 view.alerts.filter { it.fired }.forEach {
                     voice.speak(it.phrase)
@@ -409,7 +449,7 @@ class RparRuntime(private val app: android.app.Application) {
                         meta = frame.meta,
                         imu = imu,
                         location = frame.location,
-                        observations = null,
+                        observations = if (_ui.value.runMode == RunMode.REALTIME_PERCEPTION_FULL_LOG) pipeline.lastObservations else null,
                         tracks = view.tracks,
                         alerts = view.alerts,
                         diagnostics = diagnostics.drain(),
@@ -418,10 +458,21 @@ class RparRuntime(private val app: android.app.Application) {
                             .put("ar_fps", view.arFps)
                             .put("latency_p95_ms", view.latencyP95Ms)
                             .put("thermal_c", sensors.thermalC)
+                            .put("thermal_reason", pipeline.thermalReason)
+                            .put("skip_far_roi", pipeline.skipFarRoi)
+                            .put("inferred", pipeline.didInfer)
+                            .put("degrade_reason", view.quality?.degradeReason)
+                            .put("selected_for_infer", view.quality?.selectedForInfer)
+                            .put("selected_age_ms", view.quality?.selectedAgeMs)
+                            .put("occupancy_occluded_ratio", view.quality?.occupancyOccludedRatio)
+                            .put("sharpness", view.quality?.globalQuality?.sharpness)
+                            .put("blur", view.blur)
+                            .put("glare", view.glare)
                             .put("battery_pct", sensors.batteryPct)
                             .put("charging", sensors.charging)
                             .put("using_test_pattern", _ui.value.usingTestPattern)
-                            .put("privacy_mode", privacy.wire),
+                            .put("privacy_mode", privacy.wire)
+                            .put("status", view.status.wire),
                     )
                     w.writeOverlay(frame.meta.sensorTimestampNs, view.primitives)
                 }

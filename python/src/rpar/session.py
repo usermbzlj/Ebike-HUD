@@ -77,6 +77,7 @@ class SessionWriter:
             self.root / "location",
             self.root / "perception",
             self.root / "events",
+            self.root / "events" / "clips",
             self.root / "diagnostics",
         ]:
             p.mkdir(parents=True, exist_ok=True)
@@ -93,7 +94,9 @@ class SessionWriter:
             "perception/observations.jsonl",
             "perception/tracks.jsonl",
             "events/alerts.jsonl",
+            "events/marks.jsonl",
             "diagnostics/runtime.jsonl",
+            "diagnostics/events.jsonl",
         ]:
             (self.root / name).touch()
 
@@ -167,6 +170,32 @@ class SessionWriter:
         with (self.root / "imu" / name).open("a", encoding="utf-8") as f:
             f.write(json_dumps(sample) + "\n")
 
+    def write_event(self, event: dict[str, Any]) -> None:
+        with (self.root / "diagnostics" / "events.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json_dumps(event) + "\n")
+
+    def write_mark(self, timestamp_ns: int, note: str, frame_id: int | None = None) -> None:
+        with (self.root / "events" / "marks.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json_dumps({"timestamp_ns": timestamp_ns, "note": note, "frame_id": frame_id}) + "\n")
+
+    def imu_interval_report(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for name, key in (
+            ("gyro.jsonl", "gyro"),
+            ("accelerometer.jsonl", "accel"),
+            ("rotation_vector.jsonl", "rotation_vector"),
+        ):
+            path = self.root / "imu" / name
+            ts: list[int] = []
+            if path.exists():
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    row = json.loads(line)
+                    ts.append(int(row["timestamp_ns"]))
+            out[key] = percentile_intervals_ms(ts)
+        return out
+
     def close_segment(self) -> None:
         if self._video is None:
             return
@@ -181,6 +210,10 @@ class SessionWriter:
     def finalize(self, end_ns: int) -> Path:
         self.close_segment()
         self.manifest.end_elapsed_realtime_ns = end_ns
+        intervals = self.imu_interval_report()
+        (self.root / "diagnostics" / "imu_intervals.json").write_text(
+            json.dumps(intervals, indent=2), encoding="utf-8"
+        )
         self._write_manifest()
         write_checksums(self.root)
         self._closed = True

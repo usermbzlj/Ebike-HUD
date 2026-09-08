@@ -48,6 +48,7 @@ class NoOpEngine : PerceptionEngine {
 
 class HeuristicEngine(private val cfg: RparConfig) : PerceptionEngine {
     val modelVersion: String = cfg.model.packageId
+    var skipFarRoi: Boolean = false
 
     override fun capability(): Map<String, Any> = mapOf(
         "backend" to InferenceBackend.HEURISTIC.wire,
@@ -75,7 +76,9 @@ class HeuristicEngine(private val cfg: RparConfig) : PerceptionEngine {
                 .resize(nearW, nearH)
             val road = roadMask(full)
             occ = occlusionPolygons(full, sx, sy)
-            val farObs = detectOnRoi(frame, far, quality, (full.w * 0.18).toInt(), (full.h * 0.32).toInt(), full.w, full.h, sx, sy, occ)
+            val farObs = if (skipFarRoi) emptyList() else detectOnRoi(
+                frame, far, quality, (full.w * 0.18).toInt(), (full.h * 0.32).toInt(), full.w, full.h, sx, sy, occ,
+            )
             val nearObs = detectOnRoi(frame, near, quality, (full.w * 0.08).toInt(), (full.h * 0.50).toInt(), full.w, full.h, sx, sy, occ)
             val fullObs = detectBlobs(frame, full, road, quality, occ, sx, sy) +
                 detectCircles(frame, full, road, quality, sx, sy) +
@@ -95,7 +98,7 @@ class HeuristicEngine(private val cfg: RparConfig) : PerceptionEngine {
             backend = InferenceBackend.HEURISTIC,
             latencyMs = dtNs / 1e6,
             inputSizes = listOf(intArrayOf(farW, farH), intArrayOf(nearW, nearH)),
-            dualScale = true,
+            dualScale = !skipFarRoi,
         )
     }
 

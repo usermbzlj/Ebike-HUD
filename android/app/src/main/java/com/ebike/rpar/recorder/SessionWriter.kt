@@ -93,6 +93,20 @@ class SessionWriter(
         if (runtime != null) appendLine("diagnostics/runtime.jsonl", runtime)
     }
 
+    fun writeMark(timestampNs: Long, note: String) {
+        if (closed) return
+        File(root, "events").mkdirs()
+        appendLine(
+            "events/marks.jsonl",
+            JSONObject().put("timestamp_ns", timestampNs).put("note", note),
+        )
+    }
+
+    fun writeImuIntervals(obj: JSONObject) {
+        if (closed) return
+        File(root, "diagnostics/imu_intervals.json").writeText(obj.toString(2))
+    }
+
     fun writeOverlay(timestampNs: Long, primitives: List<RenderPrimitive>) {
         if (closed) return
         val a = JSONArray()

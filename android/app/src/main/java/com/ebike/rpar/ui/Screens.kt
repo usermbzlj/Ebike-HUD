@@ -145,6 +145,12 @@ fun HudScreen(runtime: RparRuntime, onOpenSettings: () -> Unit) {
                         Text("Blur ${"%.2f".format(v?.blur ?: 0.0)}  Glare ${"%.2f".format(v?.glare ?: 0.0)}", color = HudText, fontSize = 12.sp)
                         Text("Temp ${v?.thermalC?.let { "%.0f°C".format(it) } ?: "--"}", color = HudText, fontSize = 12.sp)
                         Text("Tracks ${v?.tracks?.joinToString { it.trackId.toString() } ?: "-"}", color = HudMuted, fontSize = 11.sp)
+                        Row {
+                            TextButton(onClick = { runtime.togglePause() }) { Text(if (ui.paused) "继续" else "暂停", color = HudAccent, fontSize = 12.sp) }
+                            TextButton(onClick = { runtime.screenshot() }) { Text("截图", color = HudAccent, fontSize = 12.sp) }
+                            TextButton(onClick = { runtime.markEvent() }) { Text("标记", color = HudAccent, fontSize = 12.sp) }
+                        }
+                        if (ui.lastMark.isNotBlank()) Text("标记 ${ui.lastMark}", color = HudMuted, fontSize = 11.sp)
                     }
                 }
                 if (!ui.touchLocked) {

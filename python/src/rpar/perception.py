@@ -115,11 +115,12 @@ class HeuristicPerceptionEngine:
     def __init__(self, cfg: RparConfig) -> None:
         self.cfg = cfg
         self.model_version = cfg.model.package_id
+        self.skip_far_roi = False
 
     def capability(self) -> dict:
         return {
             "backend": InferenceBackend.HEURISTIC.value,
-            "dual_scale": True,
+            "dual_scale": not self.skip_far_roi,
             "input_far": list(self.cfg.model.input_far),
             "input_near": list(self.cfg.model.input_near),
             "replaceable": True,
@@ -138,9 +139,11 @@ class HeuristicPerceptionEngine:
         # Far: upper-middle road strip, higher pixel density than naive 640^2 on full frame.
         far_roi = bgr[int(h * 0.32) : int(h * 0.62), int(w * 0.18) : int(w * 0.82)]
         near_roi = bgr[int(h * 0.50) :, int(w * 0.08) : int(w * 0.92)]
-        far_s = cv2.resize(far_roi, (far_w, far_h), interpolation=cv2.INTER_AREA) if far_roi.size else bgr
+        far_s = far_roi
+        if not self.skip_far_roi:
+            far_s = cv2.resize(far_roi, (far_w, far_h), interpolation=cv2.INTER_AREA) if far_roi.size else bgr
         near_s = cv2.resize(near_roi, (near_w, near_h), interpolation=cv2.INTER_AREA) if near_roi.size else bgr
-        _ = far_s, near_s  # used to keep dual-scale contract; detection runs in full res with ROI weights
+        _ = far_s, near_s
 
         road = _road_mask(bgr)
         occ = _occlusion_polygons(bgr, road)
@@ -164,7 +167,7 @@ class HeuristicPerceptionEngine:
             backend=InferenceBackend.HEURISTIC,
             latency_ms=dt,
             input_sizes=[(far_w, far_h), (near_w, near_h)],
-            dual_scale=True,
+            dual_scale=not self.skip_far_roi,
         )
 
     def _inside_occlusion(self, bbox: tuple[float, float, float, float], occ: list[list[tuple[float, float]]]) -> bool:

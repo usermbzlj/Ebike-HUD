@@ -28,8 +28,8 @@ class CalibrationStore(private val context: Context) {
     }
 
     fun loadActive(width: Int, height: Int): MountProfile {
-        val id = prefs.getString("active_id", "left_handlebar_v1")
-        return list().firstOrNull { it.profileId == id } ?: defaultProfile(width, height)
+        val id = prefs.getString("active_id", null)
+        return list().firstOrNull { it.profileId == id } ?: defaultProfile(width, height).copy(valid = false)
     }
 
     fun save(profile: MountProfile): MountProfile {
@@ -65,25 +65,35 @@ class CalibrationStore(private val context: Context) {
         name: String,
     ): MountProfile {
         val id = name.ifBlank { "mount_${System.currentTimeMillis()}" }.replace(" ", "_")
-        return save(
-            base.copy(
-                profileId = id,
-                name = name.ifBlank { id },
-                horizonYPx = horizonY.toDouble(),
-                vehicleCenterlineXPx = centerX.toDouble(),
-                nearReferenceM = nearM,
-                knownDistance5mPx = known5,
-                knownDistance10mPx = known10,
-                knownDistance20mPx = known20,
-                pitchDeg = pitch,
-                rollDeg = roll,
-                yawDeg = yaw,
-                cameraHeightM = heightM,
-                landscape = true,
-                lateralOffsetM = -0.32,
-                valid = true,
-            ),
+        var profile = base.copy(
+            profileId = id,
+            name = name.ifBlank { id },
+            horizonYPx = horizonY.toDouble(),
+            vehicleCenterlineXPx = centerX.toDouble(),
+            nearReferenceM = nearM,
+            knownDistance5mPx = known5,
+            knownDistance10mPx = known10,
+            knownDistance20mPx = known20,
+            pitchDeg = pitch,
+            rollDeg = roll,
+            yawDeg = yaw,
+            cameraHeightM = heightM,
+            landscape = true,
+            lateralOffsetM = -0.32,
+            valid = true,
         )
+        val markers = ArrayList<Pair<Double, Double>>()
+        known5?.let { markers += 5.0 to it }
+        known10?.let { markers += 10.0 to it }
+        known20?.let { markers += 20.0 to it }
+        if (markers.size >= 2) {
+            profile = Transforms.fitMountFromDistanceMarkers(
+                profile,
+                Transforms.defaultIntrinsics(),
+                markers,
+            )
+        }
+        return save(profile)
     }
 
     private fun hash(p: MountProfile): MountProfile {

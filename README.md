@@ -113,5 +113,6 @@ tests/            坐标、同步、状态机、提醒门控、会话校验、�
 - [用户操作说明](docs/USER_GUIDE.md)
 - [安装与标定](docs/CALIBRATION.md)
 - [已知限制与风险](docs/KNOWN_LIMITATIONS.md)
+- [标注指南](docs/ANNOTATION.md)
 - [测试计划与验收](docs/TEST_PLAN.md)
 - [发布说明](docs/RELEASE_NOTES.md)

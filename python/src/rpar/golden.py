@@ -216,6 +216,7 @@ def run_acceptance_suite(out_dir: Path, cfg: RparConfig | None = None) -> dict[s
         "blur": SimConfig(duration_s=2.2, fps=30, blur_windows=[(0.7, 1.15)]),
         "glare": SimConfig(duration_s=2.2, fps=30, glare_windows=[(0.8, 1.2)]),
         "follow": SimConfig(duration_s=2.2, fps=30, occlude_windows=[(0.6, 1.1)]),
+        "wet": SimConfig(duration_s=2.2, fps=30, wet=True, blur_windows=[]),
     }
     report: dict[str, Any] = {"schema_version": "1.0", "slices": {}}
     for name, sc in slices.items():

@@ -33,6 +33,8 @@ def main(argv: list[str] | None = None) -> int:
 
     g = sub.add_parser("golden", help="run synthetic golden regression")
     g.add_argument("--out", default="artifacts/golden")
+    g.add_argument("--night", action="store_true")
+    g.add_argument("--wet", action="store_true")
 
     v = sub.add_parser("video", help="run heuristic pipeline on an mp4")
     v.add_argument("path")
@@ -111,7 +113,8 @@ def main(argv: list[str] | None = None) -> int:
         serve_main(args.host, args.port)
         return 0
     if args.cmd == "golden":
-        metrics = run_simulator_golden(Path(args.out), load_config())
+        sc = SimConfig(duration_s=3.5, blur_windows=[(1.2, 1.55)], night=args.night, wet=args.wet)
+        metrics = run_simulator_golden(Path(args.out), load_config(), sc)
         print(json.dumps(metrics, indent=2))
         return 0
     if args.cmd == "video":

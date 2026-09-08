@@ -88,7 +88,7 @@ def scene_matrix_report(out_dir: Path, cfg: RparConfig | None = None) -> dict[st
     mapping = {
         "day": SimConfig(width=640, height=360, duration_s=1.2, fps=15, blur_windows=[]),
         "night": SimConfig(width=640, height=360, duration_s=1.2, fps=15, night=True, blur_windows=[]),
-        "wet": SimConfig(width=640, height=360, duration_s=1.2, fps=15, glare_windows=[(0.5, 0.8)]),
+        "wet": SimConfig(width=640, height=360, duration_s=1.2, fps=15, wet=True, blur_windows=[]),
         "backlight": SimConfig(width=640, height=360, duration_s=1.2, fps=15, glare_windows=[(0.4, 1.1)]),
         "follow": SimConfig(width=640, height=360, duration_s=1.2, fps=15, occlude_windows=[(0.5, 1.0)]),
         "glare": SimConfig(width=640, height=360, duration_s=1.2, fps=15, glare_windows=[(0.7, 1.2)]),

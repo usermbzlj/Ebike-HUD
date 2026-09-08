@@ -34,6 +34,7 @@ class SimConfig:
     speed_mps: float = 10.5  # ~38 km/h
     duration_s: float = 4.0
     night: bool = False
+    wet: bool = False
     blur_windows: list[tuple[float, float]] = field(default_factory=list)
     glare_windows: list[tuple[float, float]] = field(default_factory=list)
     occlude_windows: list[tuple[float, float]] = field(default_factory=list)
@@ -189,6 +190,8 @@ class RoadSimulator:
     def _draw_road(self, bgr: np.ndarray, ego_y: float) -> None:
         w, h = self.sim.width, self.sim.height
         asphalt = (58, 58, 62) if not self.sim.night else (36, 36, 38)
+        if self.sim.wet:
+            asphalt = (48, 42, 38) if not self.sim.night else (28, 26, 24)
         pts = []
         for x, y in [(-4.5, 3.0), (4.5, 3.0), (6.5, 45.0), (-6.5, 45.0)]:
             uv = project_vehicle_point(np.array([x, y, 0.0]), self.mount, self.k)
@@ -204,6 +207,14 @@ class RoadSimulator:
                 p1 = project_vehicle_point(np.array([x, s + 3.0, 0.0]), self.mount, self.k)
                 if p0 is not None and p1 is not None:
                     cv2.line(bgr, tuple(p0.astype(int)), tuple(p1.astype(int)), (210, 210, 220), 3, cv2.LINE_AA)
+        if self.sim.wet:
+            overlay = bgr.copy()
+            for x in (-1.6, 0.0, 1.6):
+                p0 = project_vehicle_point(np.array([x, 6.0, 0.0]), self.mount, self.k)
+                p1 = project_vehicle_point(np.array([x, 22.0, 0.0]), self.mount, self.k)
+                if p0 is not None and p1 is not None:
+                    cv2.line(overlay, tuple(p0.astype(int)), tuple(p1.astype(int)), (190, 190, 200), 6, cv2.LINE_AA)
+            cv2.addWeighted(overlay, 0.22, bgr, 0.78, 0, bgr)
         # headlights cone at night
         if self.sim.night:
             overlay = bgr.copy()
@@ -215,6 +226,14 @@ class RoadSimulator:
             if len(cone) >= 3:
                 cv2.fillConvexPoly(overlay, np.array(cone, dtype=np.int32), (70, 70, 40))
                 cv2.addWeighted(overlay, 0.35, bgr, 0.65, 0, bgr)
+        if self.sim.wet:
+            rng = np.random.default_rng(int(ego_y * 10) % 10_000)
+            overlay = bgr.copy()
+            for _ in range(6):
+                x = int(rng.integers(int(w * 0.25), int(w * 0.75)))
+                y = int(rng.integers(int(h * 0.45), int(h * 0.92)))
+                cv2.ellipse(overlay, (x, y), (int(w * 0.08), 10), 0, 0, 360, (210, 210, 220), -1)
+            cv2.addWeighted(overlay, 0.18, bgr, 0.82, 0, bgr)
 
     def _draw_object(self, bgr: np.ndarray, obj: WorldObject, rel_y: float) -> tuple[list[tuple[float, float]], bool]:
         xs = [obj.x_m - obj.width_m / 2, obj.x_m + obj.width_m / 2]
