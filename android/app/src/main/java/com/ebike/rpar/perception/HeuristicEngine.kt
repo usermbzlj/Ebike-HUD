@@ -70,16 +70,16 @@ class HeuristicEngine(private val cfg: RparConfig) : PerceptionEngine {
         val dtNs = measureNanoTime {
             val full = GrayImage.fromFrameFull(frame.yuv, frame.bitmap, minOf(fw, 960), minOf(fh, 540))
             val sx = fw / full.w.toFloat(); val sy = fh / full.h.toFloat()
-            val far = full.crop((full.w * 0.18).toInt(), (full.h * 0.32).toInt(), (full.w * 0.82).toInt(), (full.h * 0.62).toInt())
-                .resize(farW, farH)
-            val near = full.crop((full.w * 0.08).toInt(), (full.h * 0.50).toInt(), (full.w * 0.92).toInt(), full.h)
-                .resize(nearW, nearH)
+            val farBox = DualScaleRoi.farPx(full.w, full.h)
+            val nearBox = DualScaleRoi.nearPx(full.w, full.h)
+            val far = full.crop(farBox.x0, farBox.y0, farBox.x1, farBox.y1).resize(farW, farH)
+            val near = full.crop(nearBox.x0, nearBox.y0, nearBox.x1, nearBox.y1).resize(nearW, nearH)
             val road = roadMask(full)
             occ = occlusionPolygons(full, sx, sy)
             val farObs = if (skipFarRoi) emptyList() else detectOnRoi(
-                frame, far, quality, (full.w * 0.18).toInt(), (full.h * 0.32).toInt(), full.w, full.h, sx, sy, occ,
+                frame, far, quality, farBox.x0, farBox.y0, full.w, full.h, sx, sy, occ,
             )
-            val nearObs = detectOnRoi(frame, near, quality, (full.w * 0.08).toInt(), (full.h * 0.50).toInt(), full.w, full.h, sx, sy, occ)
+            val nearObs = detectOnRoi(frame, near, quality, nearBox.x0, nearBox.y0, full.w, full.h, sx, sy, occ)
             val fullObs = detectBlobs(frame, full, road, quality, occ, sx, sy) +
                 detectCircles(frame, full, road, quality, sx, sy) +
                 detectBumps(frame, full, road, quality, sx, sy) +

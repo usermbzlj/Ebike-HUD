@@ -22,6 +22,7 @@ import com.ebike.rpar.model.StabilizationMode
 import com.ebike.rpar.model.UiMode
 import com.ebike.rpar.perception.ModelManager
 import com.ebike.rpar.recorder.EventClipBuffer
+import com.ebike.rpar.recorder.SegmentRecovery
 import com.ebike.rpar.recorder.SessionWriter
 import com.ebike.rpar.sensor.SensorHub
 import com.ebike.rpar.sync.FrameSynchronizer
@@ -241,6 +242,8 @@ class RparRuntime(private val app: android.app.Application) {
         )
         clips = EventClipBuffer(File(root, "events/clips"))
         sensors.start()
+        SegmentRecovery.recoverPartFiles(File(app.filesDir, "sessions"))
+        camera.onSegmentFinalized = { writer?.noteVideoSegment() }
         if (useCam) {
             val recDir = if (_ui.value.runMode != RunMode.SAFE_MODE && !light) File(root, "video") else null
             camera.stabMode = _ui.value.stab

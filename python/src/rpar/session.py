@@ -233,8 +233,14 @@ def write_checksums(root: Path) -> Path:
 
 def verify_session(root: Path) -> dict[str, Any]:
     root = Path(root)
-    manifest_path = root / "manifest.json"
     report: dict[str, Any] = {"ok": True, "errors": [], "warnings": [], "files": {}}
+    # recover truncated last segment even if the process died before manifest finalize
+    for part in (root / "video").glob("*.part.mp4"):
+        report["warnings"].append(f"unfinalized segment {part.name}")
+        dest = Path(str(part).replace(".part.mp4", ".mp4.recovered"))
+        shutil.copy2(part, dest)
+        report["warnings"].append(f"copied to {dest.name} (marked recovered)")
+    manifest_path = root / "manifest.json"
     if not manifest_path.exists():
         report["ok"] = False
         report["errors"].append("missing manifest.json")
@@ -259,12 +265,6 @@ def verify_session(root: Path) -> dict[str, Any]:
                 report["errors"].append(f"checksum mismatch {rel}")
     else:
         report["warnings"].append("no checksums.sha256")
-    # recover truncated last segment if .part left
-    for part in (root / "video").glob("*.part.mp4"):
-        report["warnings"].append(f"unfinalized segment {part.name}")
-        dest = Path(str(part).replace(".part.mp4", ".mp4.recovered"))
-        shutil.copy2(part, dest)
-        report["warnings"].append(f"copied to {dest.name} (marked recovered)")
     cam = root / "camera" / "frame_metadata.jsonl"
     if cam.exists():
         ts = []

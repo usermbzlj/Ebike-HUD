@@ -31,7 +31,16 @@ class HybridEngine(
         val t = litert ?: return h
         return try {
             val probe = t.infer(frame, quality)
-            if (probe.observations.isNotEmpty()) probe else h.copy(latencyMs = maxOf(h.latencyMs, probe.latencyMs))
+            if (probe.observations.isNotEmpty()) {
+                probe.copy(latencyMs = maxOf(h.latencyMs, probe.latencyMs))
+            } else {
+                val score = t.lastScore
+                val obs = if (score == null) h.observations else h.observations.map { o ->
+                    val prev = o.calibratedConfidence ?: o.modelConfidence
+                    o.copy(calibratedConfidence = (0.55 * prev + 0.45 * score).coerceIn(0.0, 1.0))
+                }
+                h.copy(observations = obs, latencyMs = maxOf(h.latencyMs, probe.latencyMs))
+            }
         } catch (_: Throwable) {
             h
         }
@@ -48,6 +57,9 @@ class LiteRtEngine(
     private val interpreter: Interpreter,
     private val modelFile: File,
 ) : PerceptionEngine {
+    @Volatile var lastScore: Double? = null
+        private set
+
     override fun capability(): Map<String, Any> = mapOf(
         "backend" to InferenceBackend.CPU.wire,
         "runtime" to "tflite",
@@ -55,27 +67,38 @@ class LiteRtEngine(
         "dual_scale" to true,
         "replaceable" to true,
         "outputs" to "RoadObservation",
+        "input" to "far_near_features_12",
     )
 
     override suspend fun infer(frame: SynchronizedFrame, quality: FrameQualityMap?): PerceptionResult {
         val far = cfg.model.inputFar
         val near = cfg.model.inputNear
         val t0 = System.nanoTime()
+        lastScore = null
         try {
             if (interpreter.inputTensorCount < 1 || interpreter.outputTensorCount < 1) {
                 throw IllegalStateException("no tensors")
             }
             val in0 = interpreter.getInputTensor(0)
-            val shape = in0.shape()
-            val bytes = in0.numBytes().coerceAtLeast(4)
-            val buf = ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder())
-            buf.rewind()
-            val out0 = interpreter.getOutputTensor(0)
-            val outBuf = ByteBuffer.allocateDirect(out0.numBytes().coerceAtLeast(4)).order(ByteOrder.nativeOrder())
-            interpreter.run(buf, outBuf)
-            Log.d(TAG, "LiteRT run ok in=${shape.contentToString()}")
+            val nIn = in0.shape().fold(1) { a, b -> a * b }
+            if (nIn != 12) {
+                Log.w(TAG, "LiteRT input elems=$nIn expected 12; skip sidecar")
+            } else {
+                val feats = DualScaleFeatures.fromFrame(frame)
+                val buf = ByteBuffer.allocateDirect(in0.numBytes().coerceAtLeast(48)).order(ByteOrder.nativeOrder())
+                feats.forEach { buf.putFloat(it) }
+                buf.rewind()
+                val out0 = interpreter.getOutputTensor(0)
+                val outBuf = ByteBuffer.allocateDirect(out0.numBytes().coerceAtLeast(4)).order(ByteOrder.nativeOrder())
+                interpreter.run(buf, outBuf)
+                outBuf.rewind()
+                val logit = outBuf.float.toDouble()
+                lastScore = logit.coerceIn(0.0, 1.0)
+                Log.d(TAG, "LiteRT run ok score=$lastScore")
+            }
         } catch (t: Throwable) {
             Log.w(TAG, "LiteRT infer skipped: ${t.message}")
+            lastScore = null
         }
         return PerceptionResult(
             timestampNs = frame.meta.sensorTimestampNs,

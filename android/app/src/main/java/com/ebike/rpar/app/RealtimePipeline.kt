@@ -17,6 +17,7 @@ import com.ebike.rpar.model.SCHEMA_VERSION
 import com.ebike.rpar.model.SynchronizedFrame
 import com.ebike.rpar.model.TrackedRoadObject
 import com.ebike.rpar.model.UiMode
+import com.ebike.rpar.perception.DualScaleRoi
 import com.ebike.rpar.perception.HeuristicEngine
 import com.ebike.rpar.perception.NoOpEngine
 import com.ebike.rpar.perception.PerceptionEngine
@@ -237,7 +238,7 @@ class RealtimePipeline(
         }
         trackedObjs.sortByDescending { it.riskScore }
         trackedObjs.forEachIndexed { i, o -> o.labelRank = i }
-        val primitives = primitives(trackedObjs, uiMode, sel.q)
+        val primitives = primitives(trackedObjs, uiMode, sel.q, frame.meta.width, frame.meta.height)
         val e2e = (if (doInfer) sel.ageMs else 0.0) + inferMs
         latencies.addLast(e2e)
         while (latencies.size > 120) latencies.removeFirst()
@@ -281,7 +282,7 @@ class RealtimePipeline(
         return (stab * missPen).coerceIn(0.05, 1.0)
     }
 
-    private fun primitives(objs: List<TrackedRoadObject>, uiMode: UiMode, qmap: com.ebike.rpar.model.FrameQualityMap): List<RenderPrimitive> {
+    private fun primitives(objs: List<TrackedRoadObject>, uiMode: UiMode, qmap: com.ebike.rpar.model.FrameQualityMap, frameW: Int, frameH: Int): List<RenderPrimitive> {
         val prims = ArrayList<RenderPrimitive>()
         if (qmap.occupancyOccludedRatio > 0.25) {
             prims += RenderPrimitive(
@@ -302,13 +303,13 @@ class RealtimePipeline(
             val nw = cfg.model.inputNear[0]; val nh = cfg.model.inputNear[1]
             prims += RenderPrimitive(
                 -3,
-                listOf(346f to 346f, 1574f to 346f, 1574f to 670f, 346f to 670f),
+                DualScaleRoi.farPolygon(frameW, frameH),
                 floatArrayOf(0.35f, 0.9f, 0.55f, 0.12f),
                 dashed = true, thickness = 1f, label = "far ${fw}x$fh", labelPriority = 90, fade = 0.4f, kind = "roi",
             )
             prims += RenderPrimitive(
                 -4,
-                listOf(154f to 540f, 1766f to 540f, 1766f to 1080f, 154f to 1080f),
+                DualScaleRoi.nearPolygon(frameW, frameH),
                 floatArrayOf(0.9f, 0.7f, 0.2f, 0.10f),
                 dashed = true, thickness = 1f, label = "near ${nw}x$nh", labelPriority = 91, fade = 0.4f, kind = "roi",
             )

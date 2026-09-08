@@ -15,6 +15,7 @@ from rpar.enums import (
     PerceptionStatus,
     RIDING_STATUS_COPY,
     UiMode,
+    VisibilityClass,
 )
 from rpar.geometry import GeometryEngine, should_mark_passed
 from rpar.models import (
@@ -27,6 +28,7 @@ from rpar.models import (
 )
 from rpar.perception import PerceptionEngine
 from rpar.quality import QualityScheduler, evaluate_frame, perception_status
+from rpar.roi import far_polygon, near_polygon
 from rpar.tracking import TrackEngine, TrackInternal
 from rpar import SCHEMA_VERSION
 
@@ -75,6 +77,7 @@ class RealtimePipeline:
         self.thermal_c: float | None = None
         self.thermal_reason: str | None = None
         self.skip_far_roi = False
+        self.research_heatmap = True
         self.status_events: list[dict] = []
         self._last_status: PerceptionStatus | None = None
         self._last_infer_ns = 0
@@ -266,7 +269,9 @@ class RealtimePipeline:
         for i, o in enumerate(tracked_objs):
             o.label_rank = i
 
-        primitives = self._primitives(tracked_objs, ui_mode, sel_q)
+        primitives = self._primitives(
+            tracked_objs, ui_mode, sel_q, sel_frame.meta.width, sel_frame.meta.height
+        )
         e2e_ms = (age_ms if do_infer else 0.0) + infer_ms
         self._latencies.append(e2e_ms)
         p95 = float(np.percentile(self._latencies, 95)) if self._latencies else e2e_ms
@@ -305,6 +310,8 @@ class RealtimePipeline:
         objs: list[TrackedRoadObject],
         ui_mode: UiMode,
         qmap: FrameQualityMap,
+        frame_w: int,
+        frame_h: int,
     ) -> list[RenderPrimitive]:
         prims: list[RenderPrimitive] = []
         # occlusion tiles as unknown, not danger-red
@@ -343,7 +350,7 @@ class RealtimePipeline:
             prims.append(
                 RenderPrimitive(
                     track_id=-3,
-                    polygon=[(346, 346), (1574, 346), (1574, 670), (346, 670)],
+                    polygon=far_polygon(frame_w, frame_h),
                     color_rgba=(0.35, 0.9, 0.55, 0.12),
                     dashed=True,
                     thickness=1.0,
@@ -356,7 +363,7 @@ class RealtimePipeline:
             prims.append(
                 RenderPrimitive(
                     track_id=-4,
-                    polygon=[(154, 540), (1766, 540), (1766, 1080), (154, 1080)],
+                    polygon=near_polygon(frame_w, frame_h),
                     color_rgba=(0.9, 0.7, 0.2, 0.1),
                     dashed=True,
                     thickness=1.0,
@@ -366,6 +373,39 @@ class RealtimePipeline:
                     kind="roi",
                 )
             )
+            if self.research_heatmap:
+                for t in qmap.tiles:
+                    if t.visibility == VisibilityClass.CLEAR:
+                        continue
+                    a = 0.16
+                    if t.visibility == VisibilityClass.BLUR:
+                        col = (0.16, 0.35, 0.82, a)
+                    elif t.visibility == VisibilityClass.GLARE:
+                        col = (1.0, 0.86, 0.16, a)
+                    elif t.visibility == VisibilityClass.UNDEREXPOSED:
+                        col = (0.16, 0.31, 0.7, a)
+                    elif t.visibility == VisibilityClass.OVEREXPOSED:
+                        col = (0.94, 0.94, 0.94, a)
+                    else:
+                        col = (0.47, 0.47, 0.47, a)
+                    prims.append(
+                        RenderPrimitive(
+                            track_id=-10,
+                            polygon=[
+                                (float(t.x0), float(t.y0)),
+                                (float(t.x1), float(t.y0)),
+                                (float(t.x1), float(t.y1)),
+                                (float(t.x0), float(t.y1)),
+                            ],
+                            color_rgba=col,
+                            dashed=False,
+                            thickness=1.0,
+                            label=None,
+                            label_priority=95,
+                            fade=a,
+                            kind="heatmap",
+                        )
+                    )
         labeled = 0
         for obj in objs:
             if obj.lifecycle_state in {LifecycleState.EXPIRED}:

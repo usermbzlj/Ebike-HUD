@@ -68,3 +68,15 @@ def test_record_session_observations_and_quality(tmp_path: Path):
 def test_storage_estimate():
     hours = estimate_hours_remaining(11.25 * 1024**3, bitrate_mbps=25.0)
     assert 0.8 < hours < 1.3
+
+
+def test_verify_session_recovers_part_mp4(tmp_path: Path):
+    video = tmp_path / "video"
+    video.mkdir()
+    part = video / "segment_000.part.mp4"
+    part.write_bytes(b"truncated-segment")
+    report = verify_session(tmp_path)
+    recovered = video / "segment_000.mp4.recovered"
+    assert recovered.exists()
+    assert recovered.read_bytes() == b"truncated-segment"
+    assert any("unfinalized" in w for w in report["warnings"])

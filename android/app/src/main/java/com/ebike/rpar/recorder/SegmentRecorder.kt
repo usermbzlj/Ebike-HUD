@@ -22,9 +22,13 @@ class SegmentRecorder(
     private var index = 0
     private var partFile: File? = null
     private var finalFile: File? = null
+    var onRotateRequested: (() -> Unit)? = null
+    var onFinalized: (() -> Unit)? = null
 
     fun prepareSurface(): Surface? {
         videoDir.mkdirs()
+        SegmentRecovery.recoverPartFiles(videoDir)
+        index = SegmentRecovery.nextSegmentIndex(videoDir)
         return try {
             val rec = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(context) else MediaRecorder()
             rec.setVideoSource(MediaRecorder.VideoSource.SURFACE)
@@ -40,7 +44,9 @@ class SegmentRecorder(
             finalFile = fin
             rec.setOutputFile(part.absolutePath)
             rec.setOnInfoListener { _, what, _ ->
-                if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED) rotate()
+                if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED) {
+                    onRotateRequested?.invoke()
+                }
             }
             rec.setOnErrorListener { _, w, extra ->
                 diagnostics.event("REC", "recorder_error", "what=$w extra=$extra")
@@ -66,10 +72,7 @@ class SegmentRecorder(
     }
 
     fun rotate() {
-        stop()
-        index++
-        prepareSurface()
-        start()
+        onRotateRequested?.invoke()
     }
 
     fun stop() {
@@ -91,6 +94,7 @@ class SegmentRecorder(
                 part.delete()
             }
             diagnostics.event("REC", "segment_finalized", fin.name)
+            onFinalized?.invoke()
         }
         partFile = null
         finalFile = null

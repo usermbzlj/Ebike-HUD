@@ -16,6 +16,7 @@ from rpar.maskutil import ellipse_polygon, nms_polygons, polygon_bbox, rect_poly
 from rpar.models import PerceptionResult, RoadObservation, SynchronizedFrame
 from rpar.quality import mask_visibility
 from rpar.models import FrameQualityMap
+from rpar.roi import FAR, NEAR, crop_xyxy
 
 
 class PerceptionEngine(Protocol):
@@ -137,8 +138,10 @@ class HeuristicPerceptionEngine:
         far_w, far_h = self.cfg.model.input_far
         near_w, near_h = self.cfg.model.input_near
         # Far: upper-middle road strip, higher pixel density than naive 640^2 on full frame.
-        far_roi = bgr[int(h * 0.32) : int(h * 0.62), int(w * 0.18) : int(w * 0.82)]
-        near_roi = bgr[int(h * 0.50) :, int(w * 0.08) : int(w * 0.92)]
+        fx0, fy0, fx1, fy1 = crop_xyxy(w, h, FAR)
+        nx0, ny0, nx1, ny1 = crop_xyxy(w, h, NEAR)
+        far_roi = bgr[fy0:fy1, fx0:fx1]
+        near_roi = bgr[ny0:ny1, nx0:nx1]
         far_s = far_roi
         if not self.skip_far_roi:
             far_s = cv2.resize(far_roi, (far_w, far_h), interpolation=cv2.INTER_AREA) if far_roi.size else bgr

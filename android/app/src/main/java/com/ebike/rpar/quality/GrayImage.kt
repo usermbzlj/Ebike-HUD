@@ -34,6 +34,34 @@ class GrayImage(val w: Int, val h: Int, val px: IntArray) {
 
     fun mean(): Double = px.average()
 
+    fun std(): Double {
+        if (px.isEmpty()) return 0.0
+        val m = mean()
+        var s = 0.0
+        for (v in px) {
+            val d = v - m
+            s += d * d
+        }
+        return sqrt(s / px.size)
+    }
+
+    fun absDiffMean(horizontal: Boolean): Double {
+        var s = 0.0
+        var n = 0
+        if (horizontal) {
+            for (y in 0 until h) for (x in 0 until w - 1) {
+                s += abs(at(x + 1, y) - at(x, y))
+                n++
+            }
+        } else {
+            for (y in 0 until h - 1) for (x in 0 until w) {
+                s += abs(at(x, y + 1) - at(x, y))
+                n++
+            }
+        }
+        return if (n == 0) 0.0 else s / n
+    }
+
     fun laplacianVar(): Double {
         if (w < 3 || h < 3) return 0.0
         var sum = 0.0

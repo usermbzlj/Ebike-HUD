@@ -12,13 +12,17 @@ from rpar import SCHEMA_VERSION
 from rpar.ml.train import split_sessions, write_run_card
 
 
-def _features(gray: np.ndarray) -> np.ndarray:
+def patch_features(gray: np.ndarray) -> np.ndarray:
     g = gray.astype(np.float64)
     mean = g.mean() / 255.0
     std = g.std() / 255.0
     gx = np.abs(np.diff(g, axis=1)).mean() / 255.0
     gy = np.abs(np.diff(g, axis=0)).mean() / 255.0
     return np.array([mean, std, gx, gy, mean * std, gx + gy], dtype=np.float64)
+
+
+def _features(gray: np.ndarray) -> np.ndarray:
+    return patch_features(gray)
 
 
 def train_dual_scale_linear(

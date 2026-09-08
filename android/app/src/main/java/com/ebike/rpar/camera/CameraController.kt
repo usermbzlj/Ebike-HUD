@@ -13,11 +13,9 @@ import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
 import android.media.Image
 import android.media.ImageReader
-import android.media.MediaRecorder
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
-import android.os.SystemClock
 import android.util.Log
 import android.util.Range
 import android.util.Size
@@ -59,6 +57,7 @@ class CameraController(
     var exposureCapNs: Long? = null
     var onFrame: ((SynchronizedFrame) -> Unit)? = null
     var onPreviewSize: ((Size) -> Unit)? = null
+    var onSegmentFinalized: (() -> Unit)? = null
     val running = AtomicBoolean(false)
     private val frameId = AtomicLong(0)
     private var lockedPhysical: String? = null
@@ -107,7 +106,10 @@ class CameraController(
             }, handler)
         }
         if (enableRecord && recordDir != null) {
-            recorder = SegmentRecorder(context, recordDir, size.width, size.height, actualFps, cfg.bitrateMbps, cfg.segmentSeconds, diagnostics)
+            recorder = SegmentRecorder(context, recordDir, size.width, size.height, actualFps, cfg.bitrateMbps, cfg.segmentSeconds, diagnostics).also { rec ->
+                rec.onFinalized = { onSegmentFinalized?.invoke() }
+                rec.onRotateRequested = { handler?.post { rotateSegment() } }
+            }
         }
         @SuppressLint("MissingPermission")
         try {
@@ -137,15 +139,24 @@ class CameraController(
         if (device != null && running.get()) createSession(recorder != null)
     }
 
+    private fun rotateSegment() {
+        try { session?.stopRepeating() } catch (_: Throwable) {}
+        recorder?.stop()
+        if (running.get() && device != null) createSession(true)
+    }
+
     private fun createSession(wantRecord: Boolean) {
         val d = device ?: return
+        try { session?.stopRepeating() } catch (_: Throwable) {}
+        try { session?.close() } catch (_: Throwable) {}
+        session = null
         val surfaces = ArrayList<Surface>()
         previewSurface?.let { surfaces += it }
         yuvReader?.surface?.let { surfaces += it }
         var recordOk = false
         var combo = "preview+yuv"
         var reason: String? = null
-        val recSurface = if (wantRecord) recorder?.prepareSurface() else null
+        val recSurface = if (wantRecord) recorder?.recordSurface() ?: recorder?.prepareSurface() else null
         if (wantRecord && recSurface != null && cfg.preferPreviewPlusYuvPlusRecord) {
             try {
                 val all = ArrayList(surfaces).also { it += recSurface }
@@ -246,17 +257,24 @@ class CameraController(
         }
         s.setRepeatingRequest(b.build(), object : CameraCaptureSession.CaptureCallback() {
             override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
-                lastResult = result
+                val ts = result.get(CaptureResult.SENSOR_TIMESTAMP) ?: return
+                resultRing.pushResult(ts, result).forEach { code ->
+                    diagnostics.event("SYNC", code, "ts=$ts")
+                }
             }
         }, handler)
     }
 
-    @Volatile private var lastResult: TotalCaptureResult? = null
+    private val resultRing = CaptureResultRing()
 
     private fun handleYuv(image: Image) {
         val y = copyY(image)
-        val result = lastResult
-        val avail = availability?.toMap()?.toMutableMap() ?: mutableMapOf()
+        val imageTs = image.timestamp
+        val hit = resultRing.matchImage(imageTs)
+        hit.codes.forEach { code ->
+            diagnostics.event("SYNC", code, "image_ts=$imageTs")
+        }
+        val result = hit.payload as? TotalCaptureResult
         val ts = result?.get(CaptureResult.SENSOR_TIMESTAMP)
         val exposure = result?.get(CaptureResult.SENSOR_EXPOSURE_TIME)
         val requested = exposureCapNs
@@ -270,12 +288,11 @@ class CameraController(
         val ae = result?.get(CaptureResult.CONTROL_AE_STATE)
         val awb = result?.get(CaptureResult.CONTROL_AWB_STATE)
         val crop = if (result != null) cropFromResult(result) else null
-        val nowElapsed = SystemClock.elapsedRealtimeNanos()
-        val sensorTs = ts ?: nowElapsed
+        val sensorTs = ts ?: imageTs
         val meta = FrameMeta(
             frameId = frameId.incrementAndGet(),
             sensorTimestampNs = sensorTs,
-            imageTimestampNs = nowElapsed,
+            imageTimestampNs = imageTs,
             exposureTimeNs = exposure,
             iso = iso,
             focalLengthMm = focal?.toDouble(),
@@ -287,7 +304,7 @@ class CameraController(
             stabilizationMode = stabMode,
             width = image.width,
             height = image.height,
-            availability = avail,
+            availability = availabilityFor(result, imageTs),
         )
         onFrame?.invoke(
             SynchronizedFrame(
@@ -301,6 +318,22 @@ class CameraController(
                 speedMps = null,
             ),
         )
+    }
+
+    private fun availabilityFor(result: TotalCaptureResult?, imageTs: Long): Map<String, Boolean> {
+        val map = HashMap<String, Boolean>()
+        map["sensor_timestamp"] = result?.get(CaptureResult.SENSOR_TIMESTAMP) != null || imageTs > 0L
+        map["exposure"] = result?.get(CaptureResult.SENSOR_EXPOSURE_TIME) != null
+        map["iso"] = result?.get(CaptureResult.SENSOR_SENSITIVITY) != null
+        map["focal"] = result?.get(CaptureResult.LENS_FOCAL_LENGTH) != null
+        map["focus_distance"] = result?.get(CaptureResult.LENS_FOCUS_DISTANCE) != null
+        map["af"] = result?.get(CaptureResult.CONTROL_AF_STATE) != null
+        map["ae"] = result?.get(CaptureResult.CONTROL_AE_STATE) != null
+        map["awb"] = result?.get(CaptureResult.CONTROL_AWB_STATE) != null
+        map["crop"] = result?.get(CaptureResult.SCALER_CROP_REGION) != null
+        map["ois"] = result?.get(CaptureResult.LENS_OPTICAL_STABILIZATION_MODE) != null
+        map["eis"] = result?.get(CaptureResult.CONTROL_VIDEO_STABILIZATION_MODE) != null
+        return map
     }
 
     private fun copyY(image: Image): YuvImageBuffer {
