@@ -375,6 +375,20 @@ def create_app() -> FastAPI:
         dest = ART / "error_lib" / src.name
         return harvest_error_cases(src, dest)
 
+    @app.get("/api/field-video")
+    def field_video_catalog() -> dict[str, Any]:
+        from rpar.field_video import list_clips, repo_video_dir
+
+        clips = list_clips(repo_video_dir(ROOT))
+        return {"directory": str(repo_video_dir(ROOT)), "n_clips": len(clips), "clips": clips}
+
+    @app.post("/api/field-video")
+    def field_video_run(max_frames: int = 90) -> dict[str, Any]:
+        from rpar.field_video import run_field_videos, repo_video_dir
+
+        ART.mkdir(parents=True, exist_ok=True)
+        return run_field_videos(repo_video_dir(ROOT), ART / "field_video", STATE.cfg, max_frames=max_frames)
+
     return app
 
 

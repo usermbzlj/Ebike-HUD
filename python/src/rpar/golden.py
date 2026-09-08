@@ -35,9 +35,14 @@ class GoldenMetrics:
     mean_infer_fps: float
     p95_latency_ms: float
     overlay_ok: bool
+    action_zone_hits: int = 0
+    action_zone_n: int = 0
+    false_solid: int = 0
+    duration_s: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         mae = float(np.mean(self.distance_err)) if self.distance_err else None
+        first_vals = [v for v in self.first_confirm_distance.values() if isinstance(v, (int, float))]
         return {
             "frames": self.frames,
             "confirmed": self.confirmed,
@@ -47,10 +52,14 @@ class GoldenMetrics:
             "direction_accuracy": (self.direction_correct / self.direction_total) if self.direction_total else None,
             "distance_mae_m": mae,
             "first_confirm_distance_m": self.first_confirm_distance,
+            "first_confirm_median_m": float(np.median(first_vals)) if first_vals else None,
             "blur_new_confirmed": self.blur_new_confirmed,
             "mean_infer_fps": self.mean_infer_fps,
             "p95_latency_ms": self.p95_latency_ms,
             "overlay_ok": self.overlay_ok,
+            "action_zone_recall": (self.action_zone_hits / self.action_zone_n) if self.action_zone_n else None,
+            "false_solid_count": self.false_solid,
+            "false_solid_per_min": (self.false_solid / max(self.duration_s / 60.0, 1e-6)) if self.duration_s else None,
         }
 
 
@@ -116,6 +125,10 @@ def _accumulate(pipe, sim, ui_mode, overlay_path: Path | None = None) -> GoldenM
     switches = 0
     frames = sim.n_frames()
     match_px = 140.0
+    zone_ids: set[str] = set()
+    zone_confirmed: set[str] = set()
+    confirmed_tracks: set[int] = set()
+    matched_tracks: set[int] = set()
     for i in range(frames):
         frame, gt = sim.frame_at(i)
         view = pipe.step(frame, ui_mode=ui_mode)
@@ -125,6 +138,9 @@ def _accumulate(pipe, sim, ui_mode, overlay_path: Path | None = None) -> GoldenM
         for tr in view.tracks:
             if tr.lifecycle_state == LifecycleState.CONFIRMED:
                 confirmed += 1
+                confirmed_tracks.add(tr.track_id)
+            if tr.lifecycle_state == LifecycleState.ALERTED:
+                confirmed_tracks.add(tr.track_id)
             if tr.lifecycle_state == LifecycleState.CANDIDATE:
                 candidates += 1
         blur = any(a <= gt["t"] <= b for a, b in sim.sim.blur_windows)
@@ -133,6 +149,8 @@ def _accumulate(pipe, sim, ui_mode, overlay_path: Path | None = None) -> GoldenM
                 if tr.lifecycle_state == LifecycleState.CONFIRMED and tr.temporal_confidence < 0.25:
                     blur_new += 1
         for g in gt["objects"]:
+            if 5.0 <= float(g["distance_m"]) <= 15.0:
+                zone_ids.add(g["id"])
             gx = np.mean([p[0] for p in g["polygon"]])
             gy = np.mean([p[1] for p in g["polygon"]])
             best = None
@@ -147,12 +165,14 @@ def _accumulate(pipe, sim, ui_mode, overlay_path: Path | None = None) -> GoldenM
                     best_d, best = d, tr
             if best is None or best_d > match_px**2:
                 continue
+            matched_tracks.add(best.track_id)
             if best.lifecycle_state in {LifecycleState.CONFIRMED, LifecycleState.ALERTED, LifecycleState.TRACKED}:
                 if g["id"] not in first_confirm and best.lifecycle_state in {
                     LifecycleState.CONFIRMED,
                     LifecycleState.ALERTED,
                 }:
                     first_confirm[g["id"]] = g["distance_m"]
+                    zone_confirmed.add(g["id"])
                 if best.distance_m is not None and best.distance_valid:
                     dist_err.append(abs(best.distance_m - g["distance_m"]))
                 want = _gt_direction(g["x_m"], pipe.cfg.geometry.corridor_half_width_m)
@@ -183,6 +203,10 @@ def _accumulate(pipe, sim, ui_mode, overlay_path: Path | None = None) -> GoldenM
         mean_infer_fps=pipe.last_view.infer_fps if pipe.last_view else 0.0,
         p95_latency_ms=pipe.last_view.latency_p95_ms if pipe.last_view else 0.0,
         overlay_ok=bool(overlay_path and overlay_path.exists() and overlay_path.stat().st_size > 1000),
+        action_zone_hits=len(zone_ids & zone_confirmed) if zone_ids else len(zone_confirmed),
+        action_zone_n=len(zone_ids) if zone_ids else 0,
+        false_solid=len(confirmed_tracks - matched_tracks),
+        duration_s=frames / max(float(sim.sim.fps), 1.0),
     )
 
 
@@ -251,11 +275,18 @@ def run_video_file(path: Path, out_dir: Path, cfg: RparConfig | None = None, max
 
     i = 0
     t0 = 1_000_000_000_000
+    unique_tracks: set[int] = set()
+    confirmed_rows = 0
+    alerts = 0
+    blurs: list[float] = []
+    glares: list[float] = []
+    lumas: list[float] = []
     while i < max_frames:
         ok, bgr = cap.read()
         if not ok:
             break
         ts = t0 + int(i * 1e9 / max(fps, 1))
+        lumas.append(float(bgr.mean()))
         frame = SynchronizedFrame(
             meta=FrameMeta(
                 frame_id=i,
@@ -283,7 +314,31 @@ def run_video_file(path: Path, out_dir: Path, cfg: RparConfig | None = None, max
         )
         view = pipe.step(frame, ui_mode=UiMode.RESEARCH)
         vw.write(compose(bgr, view, UiMode.RESEARCH))
+        alerts += sum(1 for a in view.alerts if a.fired)
+        blurs.append(view.blur)
+        glares.append(view.glare)
+        for tr in view.tracks:
+            unique_tracks.add(tr.track_id)
+            if tr.lifecycle_state in {LifecycleState.CONFIRMED, LifecycleState.ALERTED}:
+                confirmed_rows += 1
         i += 1
     cap.release()
     vw.release()
-    return {"frames": i, "out": str(out_dir / "overlay.mp4")}
+    luma = float(np.mean(lumas)) if lumas else 0.0
+    return {
+        "frames": i,
+        "out": str(out_dir / "overlay.mp4"),
+        "width": w,
+        "height": h,
+        "src_fps": fps,
+        "mean_luma": luma,
+        "lighting": "night" if luma < 105 else "day",
+        "n_unique_tracks": len(unique_tracks),
+        "n_confirmed_rows": confirmed_rows,
+        "n_alerts_fired": alerts,
+        "mean_blur": float(np.mean(blurs)) if blurs else None,
+        "mean_glare": float(np.mean(glares)) if glares else None,
+        "mean_infer_fps": pipe.last_view.infer_fps if pipe.last_view else 0.0,
+        "p95_latency_ms": pipe.last_view.latency_p95_ms if pipe.last_view else 0.0,
+        "overlay_ok": (out_dir / "overlay.mp4").exists() and (out_dir / "overlay.mp4").stat().st_size > 1000,
+    }

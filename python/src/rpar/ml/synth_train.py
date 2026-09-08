@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import cv2
 import numpy as np
 
 from rpar import SCHEMA_VERSION
@@ -21,8 +22,27 @@ def patch_features(gray: np.ndarray) -> np.ndarray:
     return np.array([mean, std, gx, gy, mean * std, gx + gy], dtype=np.float64)
 
 
-def _features(gray: np.ndarray) -> np.ndarray:
-    return patch_features(gray)
+def augment_patch(gray: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """ML-006: motion blur, exposure, noise, glare, mild roll — not a substitute for real data."""
+    g = gray.astype(np.float32)
+    kind = int(rng.integers(0, 6))
+    if kind == 0:
+        k = int(rng.choice([5, 9, 13]))
+        g = cv2.GaussianBlur(g, (k, k), 0)
+    elif kind == 1:
+        g = np.clip(g * float(rng.uniform(0.45, 1.55)), 0, 255)
+    elif kind == 2:
+        g = np.clip(g + rng.normal(0, 12, g.shape), 0, 255)
+    elif kind == 3:
+        yy, xx = np.ogrid[: g.shape[0], : g.shape[1]]
+        cx, cy = g.shape[1] / 2, g.shape[0] * 0.3
+        glare = np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * (g.shape[1] * 0.2) ** 2))
+        g = np.clip(g + 80 * glare, 0, 255)
+    elif kind == 4:
+        ang = float(rng.uniform(-6, 6))
+        m = cv2.getRotationMatrix2D((g.shape[1] / 2, g.shape[0] / 2), ang, 1.0)
+        g = cv2.warpAffine(g, m, (g.shape[1], g.shape[0]), borderMode=cv2.BORDER_REFLECT)
+    return g.astype(np.uint8)
 
 
 def train_dual_scale_linear(
@@ -38,12 +58,16 @@ def train_dual_scale_linear(
         far = rng.normal(40, 18, (24, 48)).clip(0, 255)
         near = rng.normal(70, 40, (32, 40)).clip(0, 255)
         near[10:18, 12:28] = rng.integers(10, 40, size=(8, 16))
-        xs.append(np.concatenate([_features(far), _features(near)]))
+        far = augment_patch(far.astype(np.uint8), rng)
+        near = augment_patch(near.astype(np.uint8), rng)
+        xs.append(np.concatenate([patch_features(far), patch_features(near)]))
         ys.append(1)
     for _ in range(n_neg):
         far = rng.normal(90, 12, (24, 48)).clip(0, 255)
         near = rng.normal(95, 10, (32, 40)).clip(0, 255)
-        xs.append(np.concatenate([_features(far), _features(near)]))
+        far = augment_patch(far.astype(np.uint8), rng)
+        near = augment_patch(near.astype(np.uint8), rng)
+        xs.append(np.concatenate([patch_features(far), patch_features(near)]))
         ys.append(0)
     x = np.stack(xs)
     y = np.asarray(ys, dtype=np.float64)
@@ -106,8 +130,13 @@ def write_training_bundle(
         data_version="synthetic-v0.1",
         git_commit="local",
         seed=seed,
-        hyperparameters={"estimator": "least_squares_linear", "dual_scale": True},
+        hyperparameters={"estimator": "least_squares_linear", "dual_scale": True, "augment": True},
         label_map={"anomaly": 1, "background": 0},
+    )
+    scene_sample = {"day": 0.35, "night": 0.25, "wet": 0.20, "rain": 0.20}
+    (out_dir / "scene_sample.json").write_text(
+        json.dumps({"schema_version": SCHEMA_VERSION, "weights": scene_sample, "note": "ML-007 night/rain upweight"}, indent=2),
+        encoding="utf-8",
     )
     model = train_dual_scale_linear(seed=seed)
     (out_dir / "weights.json").write_text(json.dumps(model, indent=2), encoding="utf-8")

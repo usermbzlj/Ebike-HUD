@@ -200,10 +200,11 @@ def evaluate_frame(
     _, bw = cv2.threshold(gray[: sh // 3], 40, 255, cv2.THRESH_BINARY_INV)
     n_labels, _, stats, _ = cv2.connectedComponentsWithStats(bw, connectivity=8)
     drops = 0
+    max_area = max(400, int(0.008 * sw * sh))
     for i in range(1, n_labels):
         area = stats[i, cv2.CC_STAT_AREA]
         ww, hh = stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]
-        if 8 <= area <= 400 and 0.6 <= ww / max(hh, 1) <= 1.6:
+        if 8 <= area <= max_area and 0.55 <= ww / max(hh, 1) <= 1.8:
             drops += 1
     if drops >= cfg.lens_drop_blob_min:
         gq.visibility_class = VisibilityClass.LENS_DROP

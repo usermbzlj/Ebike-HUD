@@ -69,7 +69,7 @@ def write_run_card(out: Path, **kwargs: Any) -> Path:
         "hyperparameters": kwargs.get("hyperparameters", {}),
         "label_map": kwargs.get("label_map", {}),
         "dependency_lock": kwargs.get("dependency_lock", {}),
-        "scene_slices": ["day", "night", "wet", "backlight", "follow", "glare", "rough"],
+        "scene_slices": ["day", "night", "wet", "backlight", "follow", "glare", "rough", "rain", "vibration"],
         "hard_negative_slices": [
             "tree_shadow",
             "patch",

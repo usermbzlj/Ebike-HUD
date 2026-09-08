@@ -161,9 +161,10 @@ fun evaluateFrame(gray: GrayImage, fullW: Int, fullH: Int, cfg: QualityConfig, h
     val topH = max(1, gray.h / 3)
     val dropMask = BooleanArray(gray.w * topH)
     for (y in 0 until topH) for (x in 0 until gray.w) dropMask[y * gray.w + x] = gray.at(x, y) < 40
+    val maxArea = maxOf(400, (gray.w * gray.h * 0.008).toInt())
     val drops = connectedComponents(dropMask, gray.w, topH, 8).count { b ->
         val ww = b.x1 - b.x0 + 1; val hh = (b.y1 - b.y0 + 1).coerceAtLeast(1)
-        b.area in 8..400 && ww.toDouble() / hh in 0.6..1.6
+        b.area in 8..maxArea && ww.toDouble() / hh in 0.55..1.8
     }
     if (drops >= cfg.lensDropBlobMin) {
         gq.visibilityClass = VisibilityClass.LENS_DROP

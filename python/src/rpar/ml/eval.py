@@ -10,13 +10,12 @@ import numpy as np
 
 from rpar import SCHEMA_VERSION
 from rpar.config import RparConfig, load_config
-from rpar.enums import LifecycleState, ObjectState, SemanticType, UiMode
+from rpar.enums import GeometryType, LifecycleState, ObjectState, SemanticType, Severity, UiMode
 from rpar.geometry import GeometryEngine
 from rpar.golden import _accumulate, run_oracle_golden
 from rpar.perception import oracle_engine_for_sim
 from rpar.pipeline import RealtimePipeline
 from rpar.simulator import RoadSimulator, SimConfig, WorldObject
-from rpar.enums import GeometryType, Severity
 
 
 SCENE_SLICES = ("day", "night", "wet", "backlight", "follow", "glare", "rough", "rain", "vibration")
@@ -43,18 +42,39 @@ def reliability_diagram(confidences: list[float], correct: list[int], bins: int 
     return {"bins": rows, "ece": float(ece), "n": int(c.size)}
 
 
+def _hard_negative_worlds() -> dict[str, list[WorldObject]]:
+    return {
+        "tree_shadow": [
+            WorldObject("tree_shadow", SemanticType.UNKNOWN_ANOMALY, GeometryType.FLAT, ObjectState.NORMAL, Severity.NONE, 16.0, -1.4, 4.0, 0.45, (22, 22, 24)),
+        ],
+        "patch": [
+            WorldObject("patch_flat", SemanticType.REPAIR_PATCH, GeometryType.FLAT, ObjectState.NORMAL, Severity.NONE, 18.0, -1.8, 1.6, 1.1, (42, 42, 48)),
+        ],
+        "marking": [
+            WorldObject("marking", SemanticType.REPAIR_PATCH, GeometryType.FLAT, ObjectState.NORMAL, Severity.NONE, 15.0, 0.0, 0.18, 2.8, (210, 210, 220)),
+        ],
+        "reflection": [
+            WorldObject("wet_glint", SemanticType.PUDDLE, GeometryType.FLAT, ObjectState.NORMAL, Severity.NONE, 12.0, 0.6, 1.4, 0.9, (200, 200, 210)),
+        ],
+        "manhole_normal": [
+            WorldObject("manhole_ok", SemanticType.MANHOLE_COVER, GeometryType.FLAT, ObjectState.NORMAL, Severity.NONE, 20.0, 1.4, 0.7, 0.7, (70, 72, 74)),
+        ],
+        "vehicle_shadow": [
+            WorldObject("veh_shadow", SemanticType.UNKNOWN_ANOMALY, GeometryType.FLAT, ObjectState.NORMAL, Severity.NONE, 10.0, 0.2, 3.5, 2.4, (18, 18, 20)),
+        ],
+    }
+
+
 def _hard_negative_world() -> list[WorldObject]:
-    return [
-        WorldObject("patch_flat", SemanticType.REPAIR_PATCH, GeometryType.FLAT, ObjectState.NORMAL, Severity.NONE, 18.0, -1.8, 1.6, 1.1, (42, 42, 48)),
-        WorldObject("manhole_ok", SemanticType.MANHOLE_COVER, GeometryType.FLAT, ObjectState.NORMAL, Severity.NONE, 20.0, 1.4, 0.7, 0.7, (70, 72, 74)),
-    ]
+    out: list[WorldObject] = []
+    for objs in _hard_negative_worlds().values():
+        out.extend(objs)
+    return out
 
 
-def hard_negative_report(cfg: RparConfig | None = None) -> dict[str, Any]:
-    """Flat patches and normal covers must not produce voice alerts (ML-004 / ALT-004)."""
-    cfg = cfg or load_config()
-    sim = RoadSimulator(SimConfig(width=640, height=360, duration_s=1.4, fps=15, blur_windows=[]))
-    sim.objects = _hard_negative_world()
+def _slice_hard_negative(name: str, objs: list[WorldObject], cfg: RparConfig) -> dict[str, Any]:
+    sim = RoadSimulator(SimConfig(width=640, height=360, duration_s=1.0, fps=15, blur_windows=[]))
+    sim.objects = objs
     pipe = RealtimePipeline(cfg, oracle_engine_for_sim(sim), GeometryEngine(sim.mount, cfg.geometry, sim.k))
     fired = 0
     confirmed = 0
@@ -68,15 +88,30 @@ def hard_negative_report(cfg: RparConfig | None = None) -> dict[str, Any]:
             if tr.lifecycle_state in {LifecycleState.CONFIRMED, LifecycleState.ALERTED}:
                 confirmed += 1
             confs.append(tr.effective_confidence)
-            # hard negatives should stay low-risk / unalerted
             correct.append(0 if tr.alert_score < cfg.alert.score_threshold else 1)
-    cal = reliability_diagram(confs, [1 - x for x in correct])
     return {
-        "schema_version": SCHEMA_VERSION,
-        "slices": {name: {"kind": "hard_negative"} for name in HARD_NEGATIVES},
+        "kind": "hard_negative",
         "n_alerts_fired": fired,
         "n_confirmed_rows": confirmed,
         "pass": fired == 0,
+        "calibration": reliability_diagram(confs, [1 - x for x in correct]),
+    }
+
+
+def hard_negative_report(cfg: RparConfig | None = None) -> dict[str, Any]:
+    """Flat patches, shadows, markings and normal covers must not produce voice alerts (ML-004 / ALT-004)."""
+    cfg = cfg or load_config()
+    worlds = _hard_negative_worlds()
+    slices = {name: _slice_hard_negative(name, objs, cfg) for name, objs in worlds.items()}
+    fired = sum(int(s["n_alerts_fired"]) for s in slices.values())
+    confirmed = sum(int(s["n_confirmed_rows"]) for s in slices.values())
+    cal = slices.get("patch", {}).get("calibration") or {}
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "slices": slices,
+        "n_alerts_fired": fired,
+        "n_confirmed_rows": confirmed,
+        "pass": fired == 0 and all(bool(s["pass"]) for s in slices.values()),
         "calibration": cal,
     }
 

@@ -15,6 +15,7 @@ from rpar.ml.eval import write_eval_bundle
 from rpar.ab_compare import write_damping_ab, write_model_ab
 from rpar.ml.active import write_active_queue
 from rpar.ml.synth_train import write_training_bundle
+from rpar.ml.seg_train import write_seg_bundle
 from rpar.ml.train import split_sessions, write_model_package, write_run_card
 from rpar.report import write_report
 from rpar.replay import SessionReplay, scan_time_offset_ms
@@ -41,6 +42,12 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("path")
     v.add_argument("--out", default="artifacts/video_run")
     v.add_argument("--max-frames", type=int, default=300)
+
+    fv = sub.add_parser("field-video", help="catalog + run every mp4 in Video/")
+    fv.add_argument("--video-dir", default="")
+    fv.add_argument("--out", default="artifacts/field_video")
+    fv.add_argument("--max-frames", type=int, default=180)
+    fv.add_argument("--catalog-only", action="store_true")
 
     sim = sub.add_parser("simulate", help="write a raw synthetic preview mp4")
     sim.add_argument("--out", default="artifacts/sim_raw.mp4")
@@ -110,6 +117,9 @@ def main(argv: list[str] | None = None) -> int:
     tr.add_argument("--out", default="artifacts/train_synth")
     tr.add_argument("--export-tflite", action="store_true", help="write a real TFLite graph when TensorFlow is installed")
 
+    sg = sub.add_parser("train-seg", help="dual-scale classmap pixel trainer on synthetic GT")
+    sg.add_argument("--out", default="artifacts/train_seg")
+
     ex = sub.add_parser("export", help="zip a session; optional size-capped volumes")
     ex.add_argument("session")
     ex.add_argument("--out", default="artifacts/export")
@@ -131,7 +141,16 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(metrics, indent=2))
         return 0
     if args.cmd == "video":
-        print(json.dumps(run_video_file(Path(args.path), Path(args.out)), indent=2))
+        print(json.dumps(run_video_file(Path(args.path), Path(args.out), max_frames=args.max_frames), indent=2))
+        return 0
+    if args.cmd == "field-video":
+        from rpar.field_video import run_field_videos, write_catalog
+
+        vdir = Path(args.video_dir) if args.video_dir else None
+        if args.catalog_only:
+            print(json.dumps(write_catalog(vdir), indent=2, ensure_ascii=False))
+            return 0
+        print(json.dumps(run_field_videos(vdir, Path(args.out), max_frames=args.max_frames), indent=2, ensure_ascii=False)[:8000])
         return 0
     if args.cmd == "simulate":
         simu = RoadSimulator(SimConfig(night=args.night, duration_s=3.0))
@@ -208,6 +227,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "train-synth":
         print(json.dumps(write_training_bundle(Path(args.out), export_tflite=args.export_tflite), indent=2)[:2000])
+        return 0
+    if args.cmd == "train-seg":
+        print(json.dumps(write_seg_bundle(Path(args.out)), indent=2)[:2000])
         return 0
     if args.cmd == "export":
         src = Path(args.session)

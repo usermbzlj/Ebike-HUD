@@ -129,7 +129,7 @@ class PrivacyMode(StrEnum):
 
 
 INFO_LAYER_SEMANTICS = {SemanticType.PUDDLE, SemanticType.GRAVEL}
-LOW_RISK_WHEN_NORMAL = {SemanticType.MANHOLE_COVER, SemanticType.REPAIR_PATCH}
+LOW_RISK_WHEN_NORMAL = {SemanticType.MANHOLE_COVER, SemanticType.REPAIR_PATCH, SemanticType.ROAD_JOINT}
 ALERT_FORBIDDEN_PHRASES = (
     "向左避让",
     "向右避让",

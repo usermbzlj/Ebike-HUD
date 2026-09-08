@@ -62,3 +62,11 @@ rpar serve
 ```
 
 研究控制台可同步看画面、质量分数、对象轨迹和提醒决策，用于解释「为什么这一帧没有推理 / 没有提醒」。
+
+把实拍片段放到仓库 `Video/` 后：
+
+```text
+rpar field-video --out artifacts/field_video
+```
+
+控制台「实拍视频回归」会编目并跑启发式 AR。mp4 本身不进 Git；`Video/catalog.json` 记录时长、分辨率和白天/夜间猜测。

@@ -268,6 +268,10 @@ def verify_session(root: Path) -> dict[str, Any]:
         return report
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     report["manifest"] = manifest
+    sv = str(manifest.get("schema_version") or "")
+    if sv and sv != SCHEMA_VERSION:
+        report["warnings"].append(f"schema {sv} read with compat {SCHEMA_VERSION}")
+    report["schema_compat"] = True
     chk = root / "checksums.sha256"
     if chk.exists():
         for line in chk.read_text(encoding="utf-8").splitlines():

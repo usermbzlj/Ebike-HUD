@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from rpar.capability import desktop_capability_stub
 from rpar.config import load_config
 from rpar.golden import run_oracle_golden
 from rpar.ml.eval import hard_negative_report, precision_cards, reliability_diagram, scene_matrix_report
@@ -51,3 +52,12 @@ def test_eval_bundle_scene_slices(tmp_path: Path):
     assert set(scenes["slices"]) >= {"day", "night", "follow", "glare", "rain", "vibration"}
     cards = precision_cards(tmp_path / "precision")
     assert "INT8" in cards
+
+
+def test_desktop_capability_cpu_microbench():
+    cap = desktop_capability_stub()
+    results = cap["acceleration"]["results"]
+    assert results
+    assert results[0]["backend"] == "CPU"
+    assert results[0]["status"] == "ok"
+    assert "p95_ms" in results[0]

@@ -33,6 +33,9 @@ _extract_docx.js
 sessions/
 artifacts/
 docs/samples/**/*.mp4
+Video/**/*.mp4
+Video/**/*.mov
+Video/**/*.mkv
 .cache/
 *.pyc
 .kotlin/

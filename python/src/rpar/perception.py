@@ -154,6 +154,7 @@ class HeuristicPerceptionEngine:
         observations.extend(self._detect_blobs(frame, bgr, road, quality, occ))
         observations.extend(self._detect_circles(frame, bgr, road, quality))
         observations.extend(self._detect_bumps(frame, bgr, road, quality))
+        observations.extend(self._detect_joints(frame, bgr, road, quality))
         observations.extend(self._detect_rough(frame, bgr, road, quality))
 
         scored = [(o.polygon, o.model_confidence) for o in observations]
@@ -337,6 +338,70 @@ class HeuristicPerceptionEngine:
                     quality_at_mask=mask_visibility(quality, polygon_bbox(poly)) if quality else 0.6,
                     visibility=quality.global_quality.visibility_class if quality else VisibilityClass.UNKNOWN,
                     calibrated_confidence=0.68,
+                )
+            )
+        return out
+
+    def _detect_joints(
+        self,
+        frame: SynchronizedFrame,
+        bgr: np.ndarray,
+        road: np.ndarray,
+        quality: FrameQualityMap | None,
+    ) -> list[RoadObservation]:
+        """PER-007: thin transverse seams, not convex speed bumps."""
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        h, w = gray.shape
+        edges = cv2.Canny(gray, 50, 140)
+        edges = cv2.bitwise_and(edges, road)
+        lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=40, minLineLength=int(w * 0.14), maxLineGap=8)
+        out: list[RoadObservation] = []
+        if lines is None:
+            return out
+        segs = np.asarray(lines).reshape(-1, 4)
+        bands: list[tuple[int, int, int, int]] = []
+        for x1, y1, x2, y2 in segs:
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+            if abs(y2 - y1) > 6:
+                continue
+            y = (y1 + y2) // 2
+            if y < int(h * 0.50):
+                continue
+            bands.append((min(x1, x2), y - 2, max(x1, x2), y + 3))
+        used = [False] * len(bands)
+        for i, b in enumerate(bands):
+            if used[i]:
+                continue
+            xs = [b[0], b[2]]
+            ys = [b[1], b[3]]
+            used[i] = True
+            for j, o in enumerate(bands):
+                if used[j]:
+                    continue
+                if abs(((o[1] + o[3]) / 2) - ((b[1] + b[3]) / 2)) < 6:
+                    used[j] = True
+                    xs += [o[0], o[2]]
+                    ys += [o[1], o[3]]
+            x0, x1 = min(xs), max(xs)
+            height = max(ys) - min(ys)
+            if x1 - x0 < w * 0.16 or height > 10:
+                continue
+            poly = rect_polygon(float(x0), float(min(ys)), float(x1), float(max(ys)))
+            out.append(
+                RoadObservation(
+                    timestamp_ns=frame.meta.sensor_timestamp_ns,
+                    source_frame_id=frame.meta.frame_id,
+                    semantic_type=SemanticType.ROAD_JOINT,
+                    geometry_type=GeometryType.FLAT,
+                    state=ObjectState.NORMAL,
+                    severity=Severity.NONE,
+                    mask_rle=None,
+                    polygon=poly,
+                    bbox=polygon_bbox(poly),
+                    model_confidence=0.62,
+                    quality_at_mask=mask_visibility(quality, polygon_bbox(poly)) if quality else 0.6,
+                    visibility=quality.global_quality.visibility_class if quality else VisibilityClass.UNKNOWN,
+                    calibrated_confidence=0.55,
                 )
             )
         return out

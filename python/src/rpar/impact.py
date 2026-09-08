@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 
 def estimate_impact_score(
     linear_accel: tuple[float, float, float] | None,
@@ -22,3 +24,22 @@ def estimate_impact_score(
     if az < spike_g:
         return None
     return float(min(1.0, az / 12.0))
+
+
+def harvest_impact_windows(accel_samples: list[dict[str, Any]], near_track_ids: list[int] | None = None) -> list[dict[str, Any]]:
+    """M5: IMU vertical spikes as weak-supervision windows, never as alerts."""
+    out: list[dict[str, Any]] = []
+    for s in accel_samples:
+        z = float(s.get("z") or 0.0)
+        az = abs(z - 9.81)
+        if az < 3.5:
+            continue
+        out.append(
+            {
+                "timestamp_ns": s.get("timestamp_ns"),
+                "impact_score": float(min(1.0, az / 12.0)),
+                "near_track_ids": list(near_track_ids or []),
+                "used_for_alert": False,
+            }
+        )
+    return out

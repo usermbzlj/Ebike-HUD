@@ -40,6 +40,7 @@ class SimConfig:
     occlude_windows: list[tuple[float, float]] = field(default_factory=list)
     rain: bool = False
     vibration: bool = False
+    lens_drops: bool = False
 
 
 def default_world() -> list[WorldObject]:
@@ -49,6 +50,7 @@ def default_world() -> list[WorldObject]:
         WorldObject("bump", SemanticType.SPEED_BUMP, GeometryType.CONVEX, ObjectState.ABNORMAL, Severity.MEDIUM, 36.0, 0.0, 0.45, 3.4, (30, 30, 30)),
         WorldObject("patch_flat", SemanticType.REPAIR_PATCH, GeometryType.FLAT, ObjectState.NORMAL, Severity.NONE, 18.0, -1.8, 1.6, 1.1, (42, 42, 48)),
         WorldObject("rough_left", SemanticType.ROUGH_BROKEN, GeometryType.ROUGH, ObjectState.ABNORMAL, Severity.LIGHT, 16.0, -1.1, 2.2, 1.4, (36, 34, 32)),
+        WorldObject("joint", SemanticType.ROAD_JOINT, GeometryType.FLAT, ObjectState.NORMAL, Severity.NONE, 14.0, 0.0, 0.12, 3.2, (88, 88, 92)),
     ]
 
 
@@ -230,6 +232,13 @@ class RoadSimulator:
                 cv2.line(overlay, (x, y), (x + 2, y + 16), (190, 190, 200), 1)
             bgr = cv2.addWeighted(overlay, 0.28, bgr, 0.72, 0)
             bgr = cv2.GaussianBlur(bgr, (5, 5), 1.1)
+        if self.sim.lens_drops:
+            n = 12
+            r = max(4, int(min(w, h) * 0.016))
+            for i in range(n):
+                x = int(w * (0.12 + 0.07 * (i % 6)))
+                y = int(h * (0.06 + 0.07 * (i // 6)))
+                cv2.circle(bgr, (x, y), r, (8, 8, 10), -1)
         if self._in_windows(t, self.sim.blur_windows):
             k = 21
             bgr = cv2.GaussianBlur(bgr, (k, k), 8)
@@ -316,6 +325,8 @@ class RoadSimulator:
         cv2.fillConvexPoly(bgr, pts, obj.color)
         if obj.semantic == SemanticType.SPEED_BUMP:
             cv2.polylines(bgr, [pts], True, (0, 200, 255), 2)
+        if obj.semantic == SemanticType.ROAD_JOINT:
+            cv2.polylines(bgr, [pts], True, (160, 160, 165), 2)
         if obj.semantic == SemanticType.ROUGH_BROKEN:
             x0, y0 = pts.min(axis=0)
             x1, y1 = pts.max(axis=0)

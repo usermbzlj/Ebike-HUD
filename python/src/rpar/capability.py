@@ -11,6 +11,38 @@ from typing import Any
 from rpar import SCHEMA_VERSION
 
 
+def _desktop_cpu_microbench() -> list[dict[str, Any]]:
+    import time
+
+    n = 48
+    a = [[float((i * n + j) % 17) for j in range(n)] for i in range(n)]
+    times: list[float] = []
+    first = 0.0
+    for it in range(8):
+        t0 = time.perf_counter()
+        c = [[0.0] * n for _ in range(n)]
+        for i in range(n):
+            for k in range(n):
+                acc = 0.0
+                row = a[i]
+                for j in range(n):
+                    acc += row[j] * a[j][k]
+                c[i][k] = acc
+        ms = (time.perf_counter() - t0) * 1000.0
+        if it == 0:
+            first = ms
+        else:
+            times.append(ms)
+    times.sort()
+    p50 = times[len(times) // 2] if times else first
+    p95 = times[int((len(times) - 1) * 0.95)] if times else first
+    return [
+        {"backend": "CPU", "status": "ok", "first_ms": first, "p50_ms": p50, "p95_ms": p95, "stable_10min": "not_run", "source": "desktop_stub"},
+        {"backend": "GPU", "status": "unavailable_on_desktop"},
+        {"backend": "NPU", "status": "unavailable_on_desktop"},
+    ]
+
+
 def desktop_capability_stub() -> dict[str, Any]:
     """Offline placeholder. Real Camera2/IMU/LiteRT numbers come from the Android probe."""
     return {
@@ -60,8 +92,8 @@ def desktop_capability_stub() -> dict[str, Any]:
         },
         "acceleration": {
             "candidates": ["CPU", "GPU", "NPU"],
-            "note": "LiteRT microbench runs on PKC110 only",
-            "results": [],
+            "note": "LiteRT microbench on PKC110; desktop records a CPU GEMM stub only",
+            "results": _desktop_cpu_microbench(),
         },
         "arcore": {"available": "probe_on_device", "depth": "probe_on_device", "required": False},
         "audio": {"tts": True, "bluetooth": "probe_on_device", "routes": ["speaker", "headset"]},

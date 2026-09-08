@@ -86,6 +86,7 @@ class HeuristicEngine(private val cfg: RparConfig) : PerceptionEngine {
                 detectBlobs(frame, full, road, quality, occ, sx, sy) +
                 detectCircles(frame, full, road, quality, sx, sy) +
                 detectBumps(frame, full, road, quality, sx, sy) +
+                detectJoints(frame, full, road, quality, sx, sy) +
                 detectRough(frame, full, road, quality, sx, sy)
             val keep = nmsPolygons(geo.map { it.polygon to it.modelConfidence }, 0.4)
             val fused = keep.map { geo[it] }.toMutableList()
@@ -275,6 +276,47 @@ class HeuristicEngine(private val cfg: RparConfig) : PerceptionEngine {
                     }
                 }
                 y = y1 + 4
+            } else y++
+        }
+        return out
+    }
+
+    private fun detectJoints(
+        frame: SynchronizedFrame,
+        g: GrayImage,
+        road: BooleanArray,
+        quality: FrameQualityMap?,
+        sx: Float,
+        sy: Float,
+    ): List<RoadObservation> {
+        val energy = DoubleArray(g.h)
+        for (y in 0 until g.h) {
+            var s = 0.0; var n = 0
+            for (x in 1 until g.w - 1) if (road[y * g.w + x]) {
+                s += abs(g.at(x, y) - g.at(x + 1, y)); n++
+            }
+            energy[y] = if (n == 0) 0.0 else s / n
+        }
+        val out = ArrayList<RoadObservation>()
+        var y = (g.h * 0.50).toInt()
+        while (y < g.h - 3) {
+            if (energy[y] > 10) {
+                var y1 = y
+                while (y1 < g.h - 1 && energy[y1] > 7 && (y1 - y) < 4) y1++
+                if (y1 - y in 1..3) {
+                    var x0 = g.w; var x1 = 0
+                    for (yy in y..y1) for (x in 0 until g.w) if (road[yy * g.w + x]) {
+                        x0 = minOf(x0, x); x1 = maxOf(x1, x)
+                    }
+                    if (x1 - x0 > g.w * 0.16) {
+                        val poly = rectPolygon(x0 * sx, y * sy, x1 * sx, (y1 + 1) * sy)
+                        out += makeObs(
+                            frame, poly, SemanticType.ROAD_JOINT, GeometryType.FLAT,
+                            ObjectState.NORMAL, Severity.NONE, 0.62, quality,
+                        )
+                    }
+                }
+                y = y1 + 2
             } else y++
         }
         return out

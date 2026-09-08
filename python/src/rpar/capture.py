@@ -103,6 +103,17 @@ def record_simulated_session(
             road_polygon=view.road_polygon if pipe.did_infer or view.road_polygon else None,
             occluded_polygons=view.occluded_polygons if pipe.did_infer or view.occluded_polygons else None,
         )
+        for tr in view.tracks:
+            if tr.impact_score:
+                writer.write_event(
+                    {
+                        "domain": "M5",
+                        "code": "IMPACT_SPIKE",
+                        "detail": f"score={tr.impact_score:.3f}",
+                        "track_id": tr.track_id,
+                        "used_for_alert": False,
+                    }
+                )
         vis = compose(frame.bgr, view, ui_mode)
         ov.write(vis)
         done = clips.push(BufferedFrame(frame.meta.sensor_timestamp_ns, i, vis, view.blur, len(view.tracks)))
