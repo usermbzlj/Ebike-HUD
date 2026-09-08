@@ -42,12 +42,14 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("path")
     v.add_argument("--out", default="artifacts/video_run")
     v.add_argument("--max-frames", type=int, default=300)
+    v.add_argument("--no-yolop", action="store_true")
 
     fv = sub.add_parser("field-video", help="catalog + run every mp4 in Video/")
     fv.add_argument("--video-dir", default="")
     fv.add_argument("--out", default="artifacts/field_video")
     fv.add_argument("--max-frames", type=int, default=180)
     fv.add_argument("--catalog-only", action="store_true")
+    fv.add_argument("--no-yolop", action="store_true", help="skip YOLOPv2 even if models/yolopv2/YOLOPv2.onnx exists")
 
     sim = sub.add_parser("simulate", help="write a raw synthetic preview mp4")
     sim.add_argument("--out", default="artifacts/sim_raw.mp4")
@@ -119,6 +121,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sg = sub.add_parser("train-seg", help="dual-scale classmap pixel trainer on synthetic GT")
     sg.add_argument("--out", default="artifacts/train_seg")
+    sg.add_argument("--export-tflite", action="store_true")
+    sg.add_argument("--package", default="", help="optional model package directory")
 
     ex = sub.add_parser("export", help="zip a session; optional size-capped volumes")
     ex.add_argument("session")
@@ -141,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(metrics, indent=2))
         return 0
     if args.cmd == "video":
-        print(json.dumps(run_video_file(Path(args.path), Path(args.out), max_frames=args.max_frames), indent=2))
+        print(json.dumps(run_video_file(Path(args.path), Path(args.out), max_frames=args.max_frames, prefer_yolop=not args.no_yolop), indent=2))
         return 0
     if args.cmd == "field-video":
         from rpar.field_video import run_field_videos, write_catalog
@@ -150,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.catalog_only:
             print(json.dumps(write_catalog(vdir), indent=2, ensure_ascii=False))
             return 0
-        print(json.dumps(run_field_videos(vdir, Path(args.out), max_frames=args.max_frames), indent=2, ensure_ascii=False)[:8000])
+        print(json.dumps(run_field_videos(vdir, Path(args.out), max_frames=args.max_frames, prefer_yolop=not args.no_yolop), indent=2, ensure_ascii=False)[:8000])
         return 0
     if args.cmd == "simulate":
         simu = RoadSimulator(SimConfig(night=args.night, duration_s=3.0))
@@ -229,7 +233,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(write_training_bundle(Path(args.out), export_tflite=args.export_tflite), indent=2)[:2000])
         return 0
     if args.cmd == "train-seg":
-        print(json.dumps(write_seg_bundle(Path(args.out)), indent=2)[:2000])
+        print(json.dumps(write_seg_bundle(Path(args.out), export_tflite=args.export_tflite, package_dir=Path(args.package) if args.package else None), indent=2)[:4000])
         return 0
     if args.cmd == "export":
         src = Path(args.session)

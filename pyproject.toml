@@ -26,6 +26,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest"]
 train = ["torch", "torchvision"]
+yolop = ["onnxruntime"]
 
 [project.scripts]
 rpar = "rpar.apps.cli:main"

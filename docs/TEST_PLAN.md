@@ -18,10 +18,10 @@
 
 ```text
 python -m rpar.apps.cli golden --out artifacts/golden
-python -m rpar.apps.cli field-video --out artifacts/field_video --max-frames 180
+python -m rpar.apps.cli field-video --out artifacts/field_video --max-frames 90
 ```
 
-合成黄金输出 `overlay.mp4` 与 `metrics.json`（方向准确率、距离 MAE、首次确认距离、模糊期幽灵框代理指标）。`field-video` 扫描仓库 `Video/` 里的实拍 mp4（按时长对齐规格 25007 白天 / 25013 夜间），写出启发式 overlay 与亮度/轨迹/提醒计数。无几何 GT 时不能当作首次确认距离门槛的正式证据。
+合成黄金输出 `overlay.mp4` 与 `metrics.json`（方向准确率、距离 MAE、首次确认距离、模糊期幽灵框代理指标）。`field-video` 扫描仓库 `Video/` 里的实拍 mp4（按时长对齐规格 25007 白天 / 25013 夜间），在本地有 YOLOPv2 ONNX 时写出可行驶区域/车辆 overlay。无几何 GT 时不能当作首次确认距离门槛的正式证据。
 
 ## V0.1 发布门槛（需 PKC110 实机补齐的证据）
 

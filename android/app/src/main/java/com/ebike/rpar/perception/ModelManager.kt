@@ -121,14 +121,17 @@ class ModelManager(private val context: Context, private val cfg: RparConfig) {
 
     private fun ensureAssetsCopied() {
         try {
-            val dest = File(context.filesDir, "models/${cfg.model.packageId}")
-            dest.mkdirs()
-            val names = context.assets.list("models/${cfg.model.packageId}") ?: emptyArray()
-            for (name in names) {
-                val out = File(dest, name)
-                if (out.exists()) continue
-                context.assets.open("models/${cfg.model.packageId}/$name").use { input ->
-                    out.outputStream().use { input.copyTo(it) }
+            val packages = context.assets.list("models") ?: emptyArray()
+            for (pkg in packages) {
+                val dest = File(context.filesDir, "models/$pkg")
+                dest.mkdirs()
+                val names = context.assets.list("models/$pkg") ?: continue
+                for (name in names) {
+                    val out = File(dest, name)
+                    if (out.exists() && out.length() > 0) continue
+                    context.assets.open("models/$pkg/$name").use { input ->
+                        out.outputStream().use { input.copyTo(it) }
+                    }
                 }
             }
         } catch (t: Throwable) {

@@ -7,6 +7,7 @@ import com.ebike.rpar.model.FrameQualityMap
 import com.ebike.rpar.model.InferenceBackend
 import com.ebike.rpar.model.PerceptionResult
 import com.ebike.rpar.model.SynchronizedFrame
+import com.ebike.rpar.model.bboxIou
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.Tensor
 import java.io.File
@@ -33,21 +34,7 @@ class HybridEngine(
         val t = litert ?: return h
         return try {
             val probe = t.infer(frame, quality)
-            if (probe.observations.isNotEmpty()) {
-                probe.copy(latencyMs = maxOf(h.latencyMs, probe.latencyMs))
-            } else {
-                val score = t.lastScore
-                val obs = if (score == null) h.observations else h.observations.map { o ->
-                    val prev = o.calibratedConfidence ?: o.modelConfidence
-                    o.copy(calibratedConfidence = (0.55 * prev + 0.45 * score).coerceIn(0.0, 1.0))
-                }
-                h.copy(
-                    observations = obs,
-                    roadPolygon = probe.roadPolygon.ifEmpty { h.roadPolygon },
-                    occludedPolygons = probe.occludedPolygons.ifEmpty { h.occludedPolygons },
-                    latencyMs = maxOf(h.latencyMs, probe.latencyMs),
-                )
-            }
+            merge(h, probe, t.lastScore)
         } catch (_: Throwable) {
             h
         }
@@ -56,6 +43,29 @@ class HybridEngine(
     override fun close() {
         primary.close()
         litert?.close()
+    }
+
+    companion object {
+        fun merge(primary: PerceptionResult, sidecar: PerceptionResult, score: Double? = null): PerceptionResult {
+            val road = if (sidecar.roadPolygon.size >= 3) sidecar.roadPolygon else primary.roadPolygon
+            val occ = sidecar.occludedPolygons.ifEmpty { primary.occludedPolygons }
+            val obs = primary.observations.map { o ->
+                if (score == null) o else {
+                    val prev = o.calibratedConfidence ?: o.modelConfidence
+                    o.copy(calibratedConfidence = (0.55 * prev + 0.45 * score).coerceIn(0.0, 1.0))
+                }
+            }.toMutableList()
+            for (extra in sidecar.observations) {
+                if (obs.none { bboxIou(it.bbox, extra.bbox) >= 0.30 }) obs.add(extra)
+            }
+            return primary.copy(
+                roadPolygon = road,
+                occludedPolygons = occ,
+                observations = obs,
+                latencyMs = maxOf(primary.latencyMs, sidecar.latencyMs),
+                dualScale = true,
+            )
+        }
     }
 }
 
@@ -139,7 +149,36 @@ class LiteRtEngine(
         val ic = inShape[3]
         if (ih < 8 || iw < 8 || ic !in 1..4) return null
         val bmp = frame.bitmap ?: return null
-        val scaled = android.graphics.Bitmap.createScaledBitmap(bmp, iw, ih, true)
+        val fw = bmp.width
+        val fh = bmp.height
+        val labelsFull = IntArray(fw * fh)
+        val rois = listOf(DualScaleRoi.farPx(fw, fh), DualScaleRoi.nearPx(fw, fh))
+        val out0 = interpreter.getOutputTensor(0)
+        for (roi in rois) {
+            val rw = (roi.x1 - roi.x0).coerceAtLeast(1)
+            val rh = (roi.y1 - roi.y0).coerceAtLeast(1)
+            val cropped = android.graphics.Bitmap.createBitmap(bmp, roi.x0, roi.y0, rw, rh)
+            val labels = inferRoiLabels(cropped, in0, out0, iw, ih, ic) ?: continue
+            ClassmapDecoder.pasteRoi(
+                labelsFull, fw, fh, labels.labels, labels.w, labels.h, roi.x0, roi.y0, roi.x1, roi.y1,
+            )
+        }
+        return ClassmapDecoder.decode(
+            labelsFull, fw, fh, frame, quality, 1f, 1f, (System.nanoTime() - t0) / 1e6,
+        )
+    }
+
+    private data class RoiLabels(val labels: IntArray, val w: Int, val h: Int)
+
+    private fun inferRoiLabels(
+        src: android.graphics.Bitmap,
+        in0: Tensor,
+        out0: Tensor,
+        iw: Int,
+        ih: Int,
+        ic: Int,
+    ): RoiLabels? {
+        val scaled = android.graphics.Bitmap.createScaledBitmap(src, iw, ih, true)
         val pixels = IntArray(iw * ih)
         scaled.getPixels(pixels, 0, iw, 0, 0, iw, ih)
         val inBuf = ByteBuffer.allocateDirect(in0.numBytes()).order(ByteOrder.nativeOrder())
@@ -158,7 +197,6 @@ class LiteRtEngine(
             }
         }
         inBuf.rewind()
-        val out0 = interpreter.getOutputTensor(0)
         val hw = parseHwc(out0.shape()) ?: return null
         val (oh, ow, oc) = hw
         val outBuf = ByteBuffer.allocateDirect(out0.numBytes().coerceAtLeast(oh * ow * oc * 4)).order(ByteOrder.nativeOrder())
@@ -172,11 +210,7 @@ class LiteRtEngine(
         } else {
             ClassmapDecoder.argmaxNhwc(floats, oh, ow, oc)
         }
-        val sx = frame.meta.width / ow.toFloat()
-        val sy = frame.meta.height / oh.toFloat()
-        return ClassmapDecoder.decode(
-            labels, ow, oh, frame, quality, sx, sy, (System.nanoTime() - t0) / 1e6,
-        )
+        return RoiLabels(labels, ow, oh)
     }
 
     override fun close() {

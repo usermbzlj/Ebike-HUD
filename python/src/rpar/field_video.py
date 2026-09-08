@@ -13,6 +13,7 @@ import numpy as np
 from rpar import SCHEMA_VERSION
 from rpar.config import RparConfig, load_config
 from rpar.golden import run_video_file
+from rpar.perception import load_engine, load_field_engine
 
 # Spec §1.2 sample durations. Copies may be transcoded (fps/size differ; duration is the fingerprint).
 _SPEC_CLIPS = (
@@ -141,37 +142,183 @@ def extract_preview(path: Path, dest: Path, at_ratio: float = 0.35) -> Path | No
     return dest
 
 
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def probe_seg_clip(path: Path, cfg: RparConfig | None = None, max_frames: int = 8) -> dict[str, Any]:
+    """Run hybrid classmap sidecar on a few real frames; no geometric GT."""
+    cfg = cfg or load_config()
+    pkg = _repo_root() / "models" / "roadseg-synth-0.1.0"
+    engine = load_engine(cfg, pkg if (pkg / "seg_weights.json").exists() else None)
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        return {"ok": False, "reason": "unreadable"}
+    from rpar.models import FrameMeta, SynchronizedFrame
+
+    n = 0
+    road_frac = []
+    n_obs = 0
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    while n < max_frames:
+        ok, bgr = cap.read()
+        if not ok:
+            break
+        ts = 1_000_000_000_000 + n * 33_000_000
+        frame = SynchronizedFrame(
+            meta=FrameMeta(
+                frame_id=n,
+                sensor_timestamp_ns=ts,
+                image_timestamp_ns=ts,
+                exposure_time_ns=None,
+                iso=None,
+                focal_length_mm=None,
+                focus_distance_diopters=None,
+                af_state=None,
+                ae_state=None,
+                awb_state=None,
+                crop_region=None,
+                stabilization_mode=None,
+                width=w,
+                height=h,
+                availability={"exposure": False, "iso": False},
+            ),
+            bgr=bgr,
+            pose=None,
+            angular_velocity=None,
+            linear_accel=None,
+            location=None,
+            speed_mps=10.0,
+        )
+        result = engine.infer(frame)
+        n_obs += len(result.observations)
+        if result.road_polygon:
+            mask = np.zeros((h, w), np.uint8)
+            pts = np.array(result.road_polygon, dtype=np.int32)
+            if len(pts) >= 3:
+                cv2.fillConvexPoly(mask, pts, 1)
+                road_frac.append(float(mask.mean()))
+        n += 1
+    cap.release()
+    cap_info = engine.capability()
+    engine.close()
+    return {
+        "ok": n > 0,
+        "frames": n,
+        "hybrid": bool(cap_info.get("hybrid")),
+        "mean_road_frac": float(np.mean(road_frac)) if road_frac else 0.0,
+        "n_observations": n_obs,
+        "package": str(pkg) if (pkg / "seg_weights.json").exists() else None,
+    }
+
+
+def _sync_frame(bgr: np.ndarray, idx: int, w: int, h: int):
+    from rpar.models import FrameMeta, SynchronizedFrame
+
+    ts = 1_000_000_000_000 + idx * 33_000_000
+    return SynchronizedFrame(
+        meta=FrameMeta(
+            frame_id=idx,
+            sensor_timestamp_ns=ts,
+            image_timestamp_ns=ts,
+            exposure_time_ns=None,
+            iso=None,
+            focal_length_mm=None,
+            focus_distance_diopters=None,
+            af_state=None,
+            ae_state=None,
+            awb_state=None,
+            crop_region=None,
+            stabilization_mode=None,
+            width=w,
+            height=h,
+            availability={"exposure": False, "iso": False},
+        ),
+        bgr=bgr,
+        pose=None,
+        angular_velocity=None,
+        linear_accel=None,
+        location=None,
+        speed_mps=10.0,
+    )
+
+
+def render_yolop_stills(path: Path, dest: Path, engine, ratios: tuple[float, ...] = (0.28, 0.48, 0.68)) -> list[str]:
+    """Direct YOLOPv2 wash overlays (green road + vehicle boxes) at a few timestamps."""
+    sidecar = getattr(engine, "sidecar", None)
+    if sidecar is None or not hasattr(sidecar, "last_da_mask"):
+        return []
+    from rpar.ml.yolopv2 import paint_drivable
+
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        return []
+    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    dest.mkdir(parents=True, exist_ok=True)
+    out: list[str] = []
+    for r in ratios:
+        idx = max(0, min(n - 1, int(n * r)))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, float(idx))
+        ok, bgr = cap.read()
+        if not ok:
+            continue
+        result = sidecar.infer(_sync_frame(bgr, idx, w, h))
+        painted = paint_drivable(bgr, sidecar.last_da_mask, sidecar.last_boxes, result.road_polygon)
+        dest_path = dest / f"yolop_{idx:04d}.jpg"
+        cv2.imwrite(str(dest_path), painted, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+        out.append(str(dest_path))
+    cap.release()
+    return out
+
+
 def run_field_videos(
     video_dir: Path | None = None,
     out_dir: Path | None = None,
     cfg: RparConfig | None = None,
     max_frames: int = 180,
+    *,
+    prefer_yolop: bool = False,
 ) -> dict[str, Any]:
-    """Run the heuristic pipeline on every local field clip and write overlays + metrics."""
+    """Run the field pipeline on every local clip. YOLOPv2 is opt-in so pytest stays fast."""
     cfg = cfg or load_config()
     d = Path(video_dir) if video_dir else repo_video_dir()
     out_dir = Path(out_dir) if out_dir else Path("artifacts") / "field_video"
     out_dir.mkdir(parents=True, exist_ok=True)
     catalog = write_catalog(d)
     live = {c["name"]: c for c in list_clips(d)}
+    engine = load_field_engine(cfg, prefer_yolop=prefer_yolop)
     results: list[dict[str, Any]] = []
-    for clip in catalog["clips"]:
-        if not clip.get("ok"):
-            results.append(clip)
-            continue
-        src = Path(live[clip["name"]]["path"])
-        alias = clip["alias"]
-        dest = out_dir / alias
-        dest.mkdir(parents=True, exist_ok=True)
-        extract_preview(src, dest / "preview.jpg")
-        metrics = run_video_file(src, dest, cfg, max_frames=max_frames)
-        row = {**clip, "run": metrics}
-        (dest / "metrics.json").write_text(json.dumps(row, indent=2, ensure_ascii=False), encoding="utf-8")
-        results.append(row)
+    try:
+        for clip in catalog["clips"]:
+            if not clip.get("ok"):
+                results.append(clip)
+                continue
+            src = Path(live[clip["name"]]["path"])
+            alias = clip["alias"]
+            dest = out_dir / alias
+            dest.mkdir(parents=True, exist_ok=True)
+            extract_preview(src, dest / "preview.jpg")
+            metrics = run_video_file(src, dest, cfg, max_frames=max_frames, engine=engine)
+            yolop_stills = render_yolop_stills(src, dest, engine) if prefer_yolop else []
+            row = {
+                **clip,
+                "run": metrics,
+                "yolop_stills": yolop_stills,
+                "seg": probe_seg_clip(src, cfg, max_frames=min(8, max_frames)),
+            }
+            (dest / "metrics.json").write_text(json.dumps(row, indent=2, ensure_ascii=False), encoding="utf-8")
+            results.append(row)
+    finally:
+        engine.close()
     bundle = {
         "schema_version": SCHEMA_VERSION,
         "catalog": catalog,
         "max_frames": max_frames,
+        "prefer_yolop": prefer_yolop,
+        "hybrid": bool(engine.capability().get("hybrid")) if hasattr(engine, "capability") else False,
         "results": results,
         "n_ok": sum(1 for r in results if r.get("run", {}).get("frames", 0) > 0),
     }

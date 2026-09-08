@@ -14,7 +14,7 @@ from rpar.config import RparConfig, load_config
 from rpar.enums import Direction, LifecycleState, UiMode
 from rpar.geometry import GeometryEngine
 from rpar.overlay import compose
-from rpar.perception import HeuristicPerceptionEngine, oracle_engine_for_sim
+from rpar.perception import HeuristicPerceptionEngine, load_field_engine, oracle_engine_for_sim
 from rpar.pipeline import RealtimePipeline
 from rpar.simulator import RoadSimulator, SimConfig, write_preview_video
 from rpar.transforms import default_intrinsics, default_mount
@@ -257,7 +257,16 @@ def run_acceptance_suite(out_dir: Path, cfg: RparConfig | None = None) -> dict[s
     return report
 
 
-def run_video_file(path: Path, out_dir: Path, cfg: RparConfig | None = None, max_frames: int = 400) -> dict[str, Any]:
+def run_video_file(
+    path: Path,
+    out_dir: Path,
+    cfg: RparConfig | None = None,
+    max_frames: int = 400,
+    *,
+    engine=None,
+    prefer_yolop: bool = False,
+    still_ratios: tuple[float, ...] = (0.25, 0.45, 0.65),
+) -> dict[str, Any]:
     cfg = cfg or load_config()
     cap = cv2.VideoCapture(str(path))
     if not cap.isOpened():
@@ -267,7 +276,9 @@ def run_video_file(path: Path, out_dir: Path, cfg: RparConfig | None = None, max
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
     mount = default_mount(w, h)
     k = default_intrinsics(w, h)
-    pipe = RealtimePipeline(cfg, HeuristicPerceptionEngine(cfg), GeometryEngine(mount, cfg.geometry, k))
+    own_engine = engine is None
+    eng = engine if engine is not None else load_field_engine(cfg, prefer_yolop=prefer_yolop)
+    pipe = RealtimePipeline(cfg, eng, GeometryEngine(mount, cfg.geometry, k))
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     vw = cv2.VideoWriter(str(out_dir / "overlay.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
@@ -281,6 +292,8 @@ def run_video_file(path: Path, out_dir: Path, cfg: RparConfig | None = None, max
     blurs: list[float] = []
     glares: list[float] = []
     lumas: list[float] = []
+    still_at = {max(0, int(max_frames * r) - 1) for r in still_ratios}
+    stills: list[str] = []
     while i < max_frames:
         ok, bgr = cap.read()
         if not ok:
@@ -313,7 +326,12 @@ def run_video_file(path: Path, out_dir: Path, cfg: RparConfig | None = None, max
             speed_mps=10.5,
         )
         view = pipe.step(frame, ui_mode=UiMode.RESEARCH)
-        vw.write(compose(bgr, view, UiMode.RESEARCH))
+        composed = compose(bgr, view, UiMode.RESEARCH)
+        vw.write(composed)
+        if i in still_at:
+            still_path = out_dir / f"overlay_{i:04d}.jpg"
+            cv2.imwrite(str(still_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+            stills.append(str(still_path))
         alerts += sum(1 for a in view.alerts if a.fired)
         blurs.append(view.blur)
         glares.append(view.glare)
@@ -324,10 +342,17 @@ def run_video_file(path: Path, out_dir: Path, cfg: RparConfig | None = None, max
         i += 1
     cap.release()
     vw.release()
+    cap_info = eng.capability() if hasattr(eng, "capability") else {}
+    if own_engine:
+        eng.close()
     luma = float(np.mean(lumas)) if lumas else 0.0
+    sidecar = cap_info.get("sidecar") if isinstance(cap_info.get("sidecar"), dict) else cap_info
     return {
         "frames": i,
         "out": str(out_dir / "overlay.mp4"),
+        "stills": stills,
+        "engine": sidecar.get("backend", cap_info.get("backend")),
+        "hybrid": bool(cap_info.get("hybrid")),
         "width": w,
         "height": h,
         "src_fps": fps,

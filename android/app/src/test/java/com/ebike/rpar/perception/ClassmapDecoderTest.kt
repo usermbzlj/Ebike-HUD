@@ -38,4 +38,15 @@ class ClassmapDecoderTest {
         assertTrue(labels[0] == 1)
         assertTrue(labels[1] == 0)
     }
+
+    @Test
+    fun pasteRoiWritesFarThenNear() {
+        val dw = 10
+        val dh = 10
+        val dst = IntArray(dw * dh)
+        val src = IntArray(4) { ClassmapDecoder.CLASS_ROAD }
+        ClassmapDecoder.pasteRoi(dst, dw, dh, src, 2, 2, 1, 1, 5, 5)
+        assertTrue(dst[1 * dw + 1] == ClassmapDecoder.CLASS_ROAD)
+        assertTrue(dst[0] == 0)
+    }
 }

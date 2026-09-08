@@ -1,0 +1,63 @@
+package com.ebike.rpar.perception
+
+import com.ebike.rpar.model.GeometryType
+import com.ebike.rpar.model.InferenceBackend
+import com.ebike.rpar.model.ObjectState
+import com.ebike.rpar.model.PerceptionResult
+import com.ebike.rpar.model.RoadObservation
+import com.ebike.rpar.model.SemanticType
+import com.ebike.rpar.model.Severity
+import com.ebike.rpar.model.VisibilityClass
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class HybridEngineMergeTest {
+    private fun obs(semantic: SemanticType, x0: Float, y0: Float, x1: Float, y1: Float): RoadObservation {
+        val poly = listOf(x0 to y0, x1 to y0, x1 to y1, x0 to y1)
+        return RoadObservation(
+            timestampNs = 1,
+            sourceFrameId = 0,
+            semanticType = semantic,
+            geometryType = GeometryType.CONCAVE,
+            state = ObjectState.ABNORMAL,
+            severity = Severity.MEDIUM,
+            maskRle = null,
+            polygon = poly,
+            bbox = floatArrayOf(x0, y0, x1, y1),
+            modelConfidence = 0.8,
+            qualityAtMask = 0.9,
+            visibility = VisibilityClass.CLEAR,
+            calibratedConfidence = 0.8,
+        )
+    }
+
+    @Test
+    fun mergeKeepsHeuristicAndAddsFarSidecar() {
+        val primary = PerceptionResult(
+            timestampNs = 1,
+            sourceFrameId = 0,
+            roadPolygon = listOf(0f to 10f, 20f to 10f, 20f to 20f, 0f to 20f),
+            occludedPolygons = emptyList(),
+            observations = listOf(obs(SemanticType.POTHOLE, 8f, 8f, 16f, 16f)),
+            backend = InferenceBackend.HEURISTIC,
+            latencyMs = 4.0,
+            inputSizes = listOf(intArrayOf(96, 48)),
+        )
+        val sidecar = PerceptionResult(
+            timestampNs = 1,
+            sourceFrameId = 0,
+            roadPolygon = listOf(1f to 11f, 40f to 11f, 40f to 30f, 1f to 30f),
+            occludedPolygons = listOf(listOf(2f to 2f, 6f to 2f, 6f to 6f, 2f to 6f)),
+            observations = listOf(obs(SemanticType.UNKNOWN_ANOMALY, 50f, 50f, 60f, 60f)),
+            backend = InferenceBackend.CPU,
+            latencyMs = 9.0,
+            inputSizes = listOf(intArrayOf(96, 48)),
+        )
+        val m = HybridEngine.merge(primary, sidecar, null)
+        assertEquals(1f, m.roadPolygon[0].first)
+        assertTrue(m.observations.any { it.semanticType == SemanticType.POTHOLE })
+        assertTrue(m.observations.any { it.semanticType == SemanticType.UNKNOWN_ANOMALY })
+        assertEquals(9.0, m.latencyMs, 1e-6)
+    }
+}

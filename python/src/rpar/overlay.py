@@ -29,7 +29,8 @@ def draw_poly(img: np.ndarray, prim: RenderPrimitive) -> None:
     alpha = float(np.clip(prim.color_rgba[3], 0, 1))
     overlay = img.copy()
     cv2.fillPoly(overlay, [pts], color)
-    cv2.addWeighted(overlay, alpha * 0.28, img, 1 - alpha * 0.28, 0, img)
+    fill = 0.58 if prim.kind == "road" else 0.46 if prim.kind == "occlusion" else 0.28
+    cv2.addWeighted(overlay, alpha * fill, img, 1 - alpha * fill, 0, img)
     if prim.dashed:
         for i in range(len(pts)):
             a = pts[i]

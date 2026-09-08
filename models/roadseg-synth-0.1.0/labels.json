@@ -1,0 +1,21 @@
+{
+  "semantic_type": [
+    "pothole",
+    "manhole_cover",
+    "speed_bump",
+    "road_joint",
+    "repair_patch",
+    "rough_broken",
+    "puddle",
+    "gravel",
+    "unknown_anomaly"
+  ],
+  "geometry_type": [
+    "concave",
+    "convex",
+    "rough",
+    "step",
+    "flat",
+    "unknown"
+  ]
+}

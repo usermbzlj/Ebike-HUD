@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>YOLOPv2 实拍效果</title>
+  <style>
+    body { margin: 0; background: #07090d; color: #e7eef3; font-family: "Segoe UI", "PingFang SC", sans-serif; }
+    header { padding: 20px 24px 8px; }
+    h1 { font-size: 18px; letter-spacing: 0.12em; margin: 0 0 8px; }
+    p { color: #8aa0ad; max-width: 920px; line-height: 1.5; }
+    main { display: grid; gap: 22px; padding: 12px 24px 40px; }
+    figure { margin: 0; background: #0b1016; border: 1px solid #1d2a33; padding: 10px; }
+    img { width: 100%; max-width: 960px; height: auto; display: block; background: #05070a; }
+    figcaption { padding: 10px 4px 2px; color: #8aa0ad; font-size: 13px; }
+    strong { color: #2ed3c6; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>YOLOPv2 · 可行驶区域 + 车辆遮挡</h1>
+    <p>绿罩 = 可行驶路面，橙框 = 车辆（只当遮挡，不当坑洞）。启发式仍负责井盖/坑洞候选。权重约 156 MB，不进 Git。转码片段不能当作首次确认距离的场测证据。</p>
+  </header>
+  <main>
+    <figure>
+      <img src="yolop_day_25007.jpg" alt="白天可行驶区域与车辆" />
+      <figcaption><strong>白天 25007</strong> — YOLOPv2 绿罩沿路面延伸，路边车辆橙框。</figcaption>
+    </figure>
+    <figure>
+      <img src="yolop_night_25013.jpg" alt="夜间前车与可行驶区域" />
+      <figcaption><strong>夜间 25013</strong> — 桥上前车橙框 + 路面绿罩。</figcaption>
+    </figure>
+    <figure>
+      <img src="yolop_extra.jpg" alt="巷道可行驶区域" />
+      <figcaption><strong>巷道 extra</strong> — 窄路绿罩；远处篷车未始终出框。</figcaption>
+    </figure>
+    <figure>
+      <img src="overlay_night_25013.jpg" alt="混合引擎研究 overlay" />
+      <figcaption><strong>混合 HUD</strong> — 研究模式：YOLOPv2 道路/车辆 + 启发式实例（井盖/破损候选仍会画出）。</figcaption>
+    </figure>
+  </main>
+</body>
+</html>

@@ -1,0 +1,54 @@
+{
+  "schema_version": "1.0",
+  "package_id": "roadseg-synth-0.1.0",
+  "engine": "classmap",
+  "files": {
+    "model.tflite": "model.tflite",
+    "labels.json": "labels.json"
+  },
+  "input_spec": {
+    "far": {
+      "width": 768,
+      "height": 384,
+      "layout": "RGB",
+      "norm": "imagenet"
+    },
+    "near": {
+      "width": 640,
+      "height": 480,
+      "layout": "RGB",
+      "norm": "imagenet"
+    },
+    "note": "Must not use a single 640x640 full-frame as the only input."
+  },
+  "quantization": "fp32_plus_dynamic_int8",
+  "compatible_app": ">=0.1.0",
+  "labels": {
+    "semantic_type": [
+      "pothole",
+      "manhole_cover",
+      "speed_bump",
+      "road_joint",
+      "repair_patch",
+      "rough_broken",
+      "puddle",
+      "gravel",
+      "unknown_anomaly"
+    ],
+    "geometry_type": [
+      "concave",
+      "convex",
+      "rough",
+      "step",
+      "flat",
+      "unknown"
+    ]
+  },
+  "sha256": {
+    "labels.json": "16f4c7240479ed5d079dfd7f993296b793a2472bd9b1b5654ce4f8916fde45bc",
+    "model.tflite": "0bbe9ffbab87d63f5709f319b511efe2786f44f8da832da083b0c3fe632e7a43",
+    "MODEL_CARD.md": "984fd92f23ff1a604c1bd607d379fa6a75ce3586c8282038454fea389f59a9f8",
+    "model_int8.tflite": "5f86ab77a90e03345fc4db62f308832f8fe7b91cbf3e0a45946573588731b2a1",
+    "seg_weights.json": "6149fdb2ed50d13e0698165166cf21d07ae357d5acc6a02c31cf4fe422c30501"
+  }
+}

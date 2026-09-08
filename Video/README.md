@@ -13,7 +13,9 @@
 
 ```text
 python -m rpar.apps.cli field-video --catalog-only
-python -m rpar.apps.cli field-video --out artifacts/field_video --max-frames 180
+python -m rpar.apps.cli field-video --out artifacts/field_video --max-frames 90
 ```
+
+若本地有 `models/yolopv2/YOLOPv2.onnx`，默认走启发式 + YOLOPv2 混合（绿=可行驶，橙=车辆）。`--no-yolop` 可关掉。权重约 156 MB，不进 Git。
 
 `catalog.json` 可提交：记录分辨率、帧率、亮度与 SHA 前缀，不含画面。

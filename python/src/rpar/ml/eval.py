@@ -151,9 +151,17 @@ def precision_cards(out_dir: Path) -> dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
     cards = {
         "FP32": {"engine": "heuristic-cv", "note": "desktop reference; not a phone number"},
-        "FP16": {"engine": "unset", "note": "requires sideloaded LiteRT package"},
-        "INT8": {"engine": "unset", "note": "requires sideloaded LiteRT package; evaluate on PKC110 input"},
+        "FP16": {"engine": "classmap-weight-cast", "note": "see train-seg precision_cards; re-eval on PKC110"},
+        "INT8": {"engine": "classmap-weight-cast", "note": "weight-cast INT8 on synthetic frame; not PKC110 Camera2"},
     }
+    try:
+        from rpar.ml.seg_train import classmap_precision_cards, train_dual_scale_classmap
+
+        seg = classmap_precision_cards(np.asarray(train_dual_scale_classmap(seed=3)["weights"]))
+        for name, body in seg.get("cards", {}).items():
+            cards[name] = {**cards.get(name, {}), **body, "engine": "dual_scale_classmap"}
+    except Exception as exc:
+        cards["error"] = str(exc)[:200]
     for name, body in cards.items():
         payload = {"schema_version": SCHEMA_VERSION, "precision": name, **body}
         (out_dir / f"{name.lower()}_card.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")

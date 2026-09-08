@@ -95,6 +95,37 @@ object ClassmapDecoder {
         return out
     }
 
+    fun pasteRoi(
+        dst: IntArray,
+        dw: Int,
+        dh: Int,
+        src: IntArray,
+        sw: Int,
+        sh: Int,
+        x0: Int,
+        y0: Int,
+        x1: Int,
+        y1: Int,
+    ) {
+        val rw = (x1 - x0).coerceAtLeast(1)
+        val rh = (y1 - y0).coerceAtLeast(1)
+        val yStart = y0.coerceAtLeast(0)
+        val yEnd = y1.coerceAtMost(dh)
+        val xStart = x0.coerceAtLeast(0)
+        val xEnd = x1.coerceAtMost(dw)
+        var y = yStart
+        while (y < yEnd) {
+            val sy = ((y - y0) * sh / rh).coerceIn(0, sh - 1)
+            var x = xStart
+            while (x < xEnd) {
+                val sx = ((x - x0) * sw / rw).coerceIn(0, sw - 1)
+                dst[y * dw + x] = src[sy * sw + sx]
+                x++
+            }
+            y++
+        }
+    }
+
     private fun blobsFor(labels: IntArray, w: Int, h: Int, cls: Int, minArea: Int): List<Blob> {
         val mask = BooleanArray(w * h) { labels[it] == cls }
         return connectedComponents(mask, w, h, minArea)

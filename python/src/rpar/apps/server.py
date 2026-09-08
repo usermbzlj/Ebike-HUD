@@ -387,8 +387,11 @@ def create_app() -> FastAPI:
         from rpar.field_video import run_field_videos, repo_video_dir
 
         ART.mkdir(parents=True, exist_ok=True)
-        return run_field_videos(repo_video_dir(ROOT), ART / "field_video", STATE.cfg, max_frames=max_frames)
+        return run_field_videos(repo_video_dir(ROOT), ART / "field_video", STATE.cfg, max_frames=max_frames, prefer_yolop=True)
 
+    fv_dir = ART / "field_video"
+    fv_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/field-video", StaticFiles(directory=str(fv_dir)), name="field_video")
     return app
 
 

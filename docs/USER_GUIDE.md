@@ -69,4 +69,4 @@ rpar serve
 rpar field-video --out artifacts/field_video
 ```
 
-控制台「实拍视频回归」会编目并跑启发式 AR。mp4 本身不进 Git；`Video/catalog.json` 记录时长、分辨率和白天/夜间猜测。
+控制台「YOLOPv2 实拍」会编目并用启发式 + YOLOPv2（若本地有 ONNX）跑 AR。mp4 本身不进 Git；`Video/catalog.json` 记录时长、分辨率和白天/夜间猜测。这不是坑洞检测，也不能当作首次确认距离的场测证据。

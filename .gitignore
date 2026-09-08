@@ -36,6 +36,9 @@ docs/samples/**/*.mp4
 Video/**/*.mp4
 Video/**/*.mov
 Video/**/*.mkv
+models/**/*.onnx
+models/**/*.pt
+models/**/*.pth
 .cache/
 *.pyc
 .kotlin/

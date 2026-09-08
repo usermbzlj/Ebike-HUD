@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 
+import cv2
 import numpy as np
 
 from rpar.alerts import AlertPolicy, visual_score
@@ -101,6 +102,7 @@ class RealtimePipeline:
         self._last_input_sizes: list[tuple[int, int]] = [cfg.model.input_far, cfg.model.input_near]
         self.last_road_polygon: list[tuple[float, float]] = []
         self.last_occluded: list[list[tuple[float, float]]] = []
+        self._prev_gray: np.ndarray | None = None
 
     def reset(self) -> None:
         self.tracker.reset()
@@ -117,6 +119,7 @@ class RealtimePipeline:
         self.skip_far_roi = False
         self.status_events = []
         self._last_status = None
+        self._prev_gray = None
 
     def _apply_thermal(self) -> None:
         """NFR-007: drop far-ROI then infer rate before touching preview."""
@@ -215,6 +218,26 @@ class RealtimePipeline:
             self.last_observations = []
             self.did_infer = False
 
+        gray = cv2.cvtColor(frame.bgr, cv2.COLOR_BGR2GRAY)
+        optical_flow: dict[int, tuple[float, float]] = {}
+        if self._prev_gray is not None and self._prev_gray.shape == gray.shape and self.tracker.tracks:
+            tids = list(self.tracker.tracks.keys())
+            pts = np.array(
+                [[[self.tracker.tracks[t].mean[0], self.tracker.tracks[t].mean[1]]] for t in tids],
+                dtype=np.float32,
+            )
+            nxt, st, _err = cv2.calcOpticalFlowPyrLK(
+                self._prev_gray, gray, pts, None, winSize=(21, 21), maxLevel=2
+            )
+            if nxt is not None and st is not None:
+                for i, tid in enumerate(tids):
+                    if int(st[i][0]) == 1:
+                        optical_flow[tid] = (
+                            float(nxt[i, 0, 0] - pts[i, 0, 0]),
+                            float(nxt[i, 0, 1] - pts[i, 0, 1]),
+                        )
+        self._prev_gray = gray
+
         tracks = self.tracker.update(
             observations,
             t0,
@@ -223,6 +246,7 @@ class RealtimePipeline:
             dt_s=dt,
             camera_yaw_rate=float(frame.angular_velocity[2]) if frame.angular_velocity else 0.0,
             frame_w=float(frame.meta.width),
+            optical_flow=optical_flow,
         )
 
         speed = frame.speed_mps
@@ -371,10 +395,10 @@ class RealtimePipeline:
                 RenderPrimitive(
                     track_id=-6,
                     polygon=self.last_road_polygon,
-                    color_rgba=(0.18, 0.72, 0.42, 0.16),
-                    dashed=True,
-                    thickness=1.0,
-                    label=None,
+                    color_rgba=(0.12, 0.92, 0.38, 0.62),
+                    dashed=False,
+                    thickness=2.0,
+                    label="road",
                     label_priority=85,
                     fade=0.6,
                     kind="road",
@@ -387,10 +411,10 @@ class RealtimePipeline:
                 RenderPrimitive(
                     track_id=-7 - i,
                     polygon=poly,
-                    color_rgba=(0.45, 0.5, 0.58, 0.28),
-                    dashed=True,
-                    thickness=1.0,
-                    label=None if ui_mode != UiMode.RESEARCH else "occlusion",
+                    color_rgba=(1.0, 0.55, 0.12, 0.58),
+                    dashed=False,
+                    thickness=2.0,
+                    label=None if ui_mode != UiMode.RESEARCH else "vehicle",
                     label_priority=86,
                     fade=0.7,
                     kind="occlusion",

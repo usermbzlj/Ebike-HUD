@@ -116,17 +116,28 @@ class TrackEngine:
         self._history.append((tr.track_id, tr.state, "spawn"))
         return tr
 
-    def _match(self, observations: list[RoadObservation]) -> tuple[list[tuple[int | None, int]], set[int]]:
-        """Greedy IoU + center matching. Returns (pairs, unmatched_track_ids)."""
+    def _match(
+        self,
+        observations: list[RoadObservation],
+        optical_flow: dict[int, tuple[float, float]] | None = None,
+        prev_xy: dict[int, tuple[float, float]] | None = None,
+    ) -> tuple[list[tuple[int | None, int]], set[int]]:
+        """Greedy IoU + center matching, with optional LK flow (TRK-002)."""
         unused = set(self.tracks.keys())
         assigned: list[tuple[int | None, int]] = []
         used_obs: set[int] = set()
         pairs: list[tuple[float, int, int]] = []
+        flow = optical_flow or {}
+        prev = prev_xy or {}
         for tid, tr in self.tracks.items():
             for j, obs in enumerate(observations):
                 iou = bbox_iou(tr.bbox, obs.bbox)
                 cx, cy = ground_contact(obs.polygon) if obs.polygon else polygon_centroid(obs.polygon)
                 dist = float(np.hypot(cx - tr.mean[0], cy - tr.mean[1]))
+                if tid in flow and tid in prev:
+                    fx, fy = flow[tid]
+                    px, py = prev[tid]
+                    dist = min(dist, float(np.hypot(cx - (px + fx), cy - (py + fy))))
                 same = obs.semantic_type == tr.semantic or obs.semantic_type == SemanticType.UNKNOWN_ANOMALY
                 score = iou * (1.2 if same else 0.7) - dist / 400.0
                 if iou >= self.cfg.iou_match or dist < self.cfg.center_match_px:
@@ -154,13 +165,15 @@ class TrackEngine:
         dt_s: float = 0.033,
         camera_yaw_rate: float = 0.0,
         frame_w: float = 1920.0,
+        optical_flow: dict[int, tuple[float, float]] | None = None,
     ) -> list[TrackInternal]:
+        prev_xy = {tid: (float(tr.mean[0]), float(tr.mean[1])) for tid, tr in self.tracks.items()}
         for tr in self.tracks.values():
             tr.mean, tr.cov = self.kf.predict(tr.mean, tr.cov, max(dt_s, 1e-3))
             # TRK-002: rotational camera flow so handlebar yaw is not object motion
             tr.mean[0] += float(camera_yaw_rate) * dt_s * (frame_w * 0.55)
 
-        matches, unmatched_tracks = self._match(observations)
+        matches, unmatched_tracks = self._match(observations, optical_flow=optical_flow, prev_xy=prev_xy)
         updated: set[int] = set()
         for tid, j in matches:
             obs = observations[j]

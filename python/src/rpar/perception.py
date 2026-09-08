@@ -643,20 +643,58 @@ def oracle_engine_for_sim(sim: "RoadSimulator") -> OraclePerceptionEngine:
 
 
 def load_engine(cfg: RparConfig, package_dir: Path | None = None) -> PerceptionEngine:
+    heuristic = HeuristicPerceptionEngine(cfg)
     if package_dir is not None:
         manifest = package_dir / "manifest.json"
+        weights_path = package_dir / "seg_weights.json"
+        if weights_path.exists():
+            import json
+
+            from rpar.segengine import DualScaleSegEngine, HybridPerceptionEngine
+
+            meta = json.loads(weights_path.read_text(encoding="utf-8"))
+            return HybridPerceptionEngine(heuristic, DualScaleSegEngine(np.asarray(meta["weights"])))
         if manifest.exists():
             import json
 
             meta = json.loads(manifest.read_text(encoding="utf-8"))
             engine = meta.get("engine", "heuristic")
-            if engine in {"heuristic", "heuristic-cv"}:
-                return HeuristicPerceptionEngine(cfg)
             if engine == "oracle":
                 return OraclePerceptionEngine([])
-            tflite = package_dir / "model.tflite"
-            if tflite.exists():
-                return HeuristicPerceptionEngine(cfg)  # LiteRT path is Android-side; desktop uses CV fallback
+            if engine in {"classmap", "litert-classmap"}:
+                from rpar.segengine import DualScaleSegEngine, HybridPerceptionEngine
+
+                wp = package_dir / "seg_weights.json"
+                if wp.exists():
+                    body = json.loads(wp.read_text(encoding="utf-8"))
+                    return HybridPerceptionEngine(heuristic, DualScaleSegEngine(np.asarray(body["weights"])))
+            if engine in {"heuristic", "heuristic-cv"}:
+                return heuristic
+            if engine in {"yolopv2", "yolop"}:
+                return load_field_engine(cfg, prefer_yolop=True)
+            if (package_dir / "YOLOPv2.onnx").exists():
+                return load_field_engine(cfg, prefer_yolop=True, weights=package_dir / "YOLOPv2.onnx")
+    if cfg.model.engine in {"yolopv2", "yolop"}:
+        return load_field_engine(cfg, prefer_yolop=True)
     if cfg.model.engine in {"heuristic", "heuristic-cv"}:
-        return HeuristicPerceptionEngine(cfg)
-    return HeuristicPerceptionEngine(cfg)
+        return heuristic
+    return heuristic
+
+
+def load_field_engine(
+    cfg: RparConfig,
+    *,
+    prefer_yolop: bool = True,
+    weights: Path | None = None,
+) -> PerceptionEngine:
+    """Heuristic + YOLOPv2 sidecar when local ONNX weights exist (desktop field demo)."""
+    heuristic = HeuristicPerceptionEngine(cfg)
+    if not prefer_yolop:
+        return heuristic
+    from rpar.ml.yolopv2 import Yolopv2Engine, weights_available
+    from rpar.segengine import HybridPerceptionEngine
+
+    path = Path(weights) if weights else None
+    if not weights_available(path):
+        return heuristic
+    return HybridPerceptionEngine(heuristic, Yolopv2Engine(path))
