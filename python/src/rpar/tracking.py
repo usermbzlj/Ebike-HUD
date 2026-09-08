@@ -237,6 +237,8 @@ class TrackEngine:
         need = self.cfg.min_confirm_hits
         if tr.semantic == SemanticType.UNKNOWN_ANOMALY:
             need += self.cfg.unknown_anomaly_extra_hits
+        if tr.semantic == SemanticType.ROUGH_BROKEN:
+            need += 3
         if tr.state == LifecycleState.CANDIDATE:
             if not observed:
                 if (now_ns - tr.last_ns) / 1e9 > self.cfg.candidate_max_age_s:

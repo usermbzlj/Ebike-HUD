@@ -49,7 +49,7 @@ class HybridEngineMergeTest {
             sourceFrameId = 0,
             roadPolygon = listOf(1f to 11f, 40f to 11f, 40f to 30f, 1f to 30f),
             occludedPolygons = listOf(listOf(2f to 2f, 6f to 2f, 6f to 6f, 2f to 6f)),
-            observations = listOf(obs(SemanticType.UNKNOWN_ANOMALY, 50f, 50f, 60f, 60f)),
+            observations = listOf(obs(SemanticType.UNKNOWN_ANOMALY, 12f, 14f, 18f, 22f)),
             backend = InferenceBackend.CPU,
             latencyMs = 9.0,
             inputSizes = listOf(intArrayOf(96, 48)),
@@ -59,5 +59,37 @@ class HybridEngineMergeTest {
         assertTrue(m.observations.any { it.semanticType == SemanticType.POTHOLE })
         assertTrue(m.observations.any { it.semanticType == SemanticType.UNKNOWN_ANOMALY })
         assertEquals(9.0, m.latencyMs, 1e-6)
+    }
+
+    @Test
+    fun mergeDropsOffRoadAndOccluded() {
+        val primary = PerceptionResult(
+            timestampNs = 1,
+            sourceFrameId = 0,
+            roadPolygon = listOf(0f to 0f, 10f to 0f, 10f to 10f, 0f to 10f),
+            occludedPolygons = emptyList(),
+            observations = listOf(
+                obs(SemanticType.POTHOLE, 12f, 14f, 18f, 22f),
+                obs(SemanticType.MANHOLE_COVER, 80f, 80f, 90f, 90f),
+                obs(SemanticType.POTHOLE, 3f, 3f, 5f, 5f),
+            ),
+            backend = InferenceBackend.HEURISTIC,
+            latencyMs = 4.0,
+            inputSizes = listOf(intArrayOf(96, 48)),
+        )
+        val sidecar = PerceptionResult(
+            timestampNs = 1,
+            sourceFrameId = 0,
+            roadPolygon = listOf(1f to 11f, 40f to 11f, 40f to 30f, 1f to 30f),
+            occludedPolygons = listOf(listOf(2f to 2f, 6f to 2f, 6f to 6f, 2f to 6f)),
+            observations = emptyList(),
+            backend = InferenceBackend.CPU,
+            latencyMs = 9.0,
+            inputSizes = listOf(intArrayOf(96, 48)),
+        )
+        val m = HybridEngine.merge(primary, sidecar, null)
+        assertTrue(m.observations.any { it.semanticType == SemanticType.POTHOLE })
+        assertTrue(m.observations.none { it.semanticType == SemanticType.MANHOLE_COVER })
+        assertTrue(m.observations.none { it.bbox[0] == 3f })
     }
 }

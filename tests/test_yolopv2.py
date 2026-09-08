@@ -4,6 +4,7 @@ import numpy as np
 
 from rpar.ml.yolopv2 import (
     is_vehicle_box,
+    lane_mask,
     letterbox,
     mask_to_polygon,
     nms_dets,
@@ -53,6 +54,8 @@ def test_vehicle_filter_drops_sky_specks():
     assert is_vehicle_box(2, (10, 10, 18, 16), (540, 960)) is False
     assert is_vehicle_box(2, (200, 300, 420, 500), (540, 960)) is True
     assert is_vehicle_box(3, (450, 100, 530, 160), (540, 960)) is True
+    assert is_vehicle_box(3, (0, 20, 70, 400), (540, 960)) is False
+    assert is_vehicle_box(2, (20, 40, 900, 500), (540, 960)) is False
 
 
 def test_paint_drivable_changes_pixels():
@@ -62,6 +65,14 @@ def test_paint_drivable_changes_pixels():
     out = paint_drivable(bgr, mask, [(20, 30, 60, 70)])
     assert out.mean() > bgr.mean()
     assert out[50, 50, 1] > 40
+
+
+def test_lane_mask_helper_shape():
+    seg = np.zeros((1, 1, 80, 160), dtype=np.float32)
+    seg[0, 0, 20:60, 20:140] = 0.8
+    out = lane_mask(seg, (8.0, 4.0), (40, 80))
+    assert out.shape == (40, 80)
+    assert float(out.mean()) > 0.1
 
 
 def test_weights_available_does_not_load_session():

@@ -8,6 +8,8 @@ import com.ebike.rpar.model.InferenceBackend
 import com.ebike.rpar.model.PerceptionResult
 import com.ebike.rpar.model.SynchronizedFrame
 import com.ebike.rpar.model.bboxIou
+import com.ebike.rpar.model.pointInPolygon
+import com.ebike.rpar.model.RoadObservation
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.Tensor
 import java.io.File
@@ -49,15 +51,20 @@ class HybridEngine(
         fun merge(primary: PerceptionResult, sidecar: PerceptionResult, score: Double? = null): PerceptionResult {
             val road = if (sidecar.roadPolygon.size >= 3) sidecar.roadPolygon else primary.roadPolygon
             val occ = sidecar.occludedPolygons.ifEmpty { primary.occludedPolygons }
-            val obs = primary.observations.map { o ->
-                if (score == null) o else {
-                    val prev = o.calibratedConfidence ?: o.modelConfidence
-                    o.copy(calibratedConfidence = (0.55 * prev + 0.45 * score).coerceIn(0.0, 1.0))
-                }
-            }.toMutableList()
-            for (extra in sidecar.observations) {
-                if (obs.none { bboxIou(it.bbox, extra.bbox) >= 0.30 }) obs.add(extra)
-            }
+            val obs = gateObservations(
+                primary.observations.map { o ->
+                    if (score == null) o else {
+                        val prev = o.calibratedConfidence ?: o.modelConfidence
+                        o.copy(calibratedConfidence = (0.55 * prev + 0.45 * score).coerceIn(0.0, 1.0))
+                    }
+                }.toMutableList().also { list ->
+                    for (extra in sidecar.observations) {
+                        if (list.none { bboxIou(it.bbox, extra.bbox) >= 0.30 }) list.add(extra)
+                    }
+                },
+                road,
+                occ,
+            )
             return primary.copy(
                 roadPolygon = road,
                 occludedPolygons = occ,
@@ -65,6 +72,21 @@ class HybridEngine(
                 latencyMs = maxOf(primary.latencyMs, sidecar.latencyMs),
                 dualScale = true,
             )
+        }
+
+        fun gateObservations(
+            observations: List<RoadObservation>,
+            road: List<Pair<Float, Float>>,
+            occ: List<List<Pair<Float, Float>>>,
+        ): List<RoadObservation> {
+            if (road.size < 3 && occ.isEmpty()) return observations
+            return observations.filter { o ->
+                val cx = (o.bbox[0] + o.bbox[2]) * 0.5f
+                val cy = (o.bbox[1] + o.bbox[3]) * 0.5f
+                if (occ.any { poly -> pointInPolygon(cx, cy, poly) }) return@filter false
+                if (road.size >= 3 && !pointInPolygon(cx, cy, road)) return@filter false
+                true
+            }
         }
     }
 }

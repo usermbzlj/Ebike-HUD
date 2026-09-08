@@ -77,7 +77,49 @@ class DualScaleSegEngine:
         return None
 
 
-def merge_perception(primary: PerceptionResult, sidecar: PerceptionResult, score: float | None = None) -> PerceptionResult:
+def _point_in_poly(x: float, y: float, poly: list[tuple[float, float]]) -> bool:
+    if len(poly) < 3:
+        return False
+    cnt = np.asarray(poly, dtype=np.float32)
+    return float(cv2.pointPolygonTest(cnt, (float(x), float(y)), False)) >= 0.0
+
+
+def _obs_center(obs) -> tuple[float, float]:
+    x0, y0, x1, y1 = obs.bbox
+    return 0.5 * (x0 + x1), 0.5 * (y0 + y1)
+
+
+def gate_observations(
+    observations: list,
+    road_polygon: list[tuple[float, float]],
+    occluded_polygons: list[list[tuple[float, float]]],
+    lane_mask: np.ndarray | None = None,
+) -> list:
+    """PER-001/002: drop off-road, vehicle, and lane-line false instances. Empty road = no gate."""
+    if len(road_polygon) < 3 and not occluded_polygons and lane_mask is None:
+        return observations
+    kept = []
+    for o in observations:
+        cx, cy = _obs_center(o)
+        if occluded_polygons and any(_point_in_poly(cx, cy, p) for p in occluded_polygons):
+            continue
+        if len(road_polygon) >= 3 and not _point_in_poly(cx, cy, road_polygon):
+            continue
+        if lane_mask is not None and lane_mask.size:
+            h, w = lane_mask.shape[:2]
+            ix, iy = int(np.clip(cx, 0, w - 1)), int(np.clip(cy, 0, h - 1))
+            if float(lane_mask[iy, ix]) > 0.45:
+                continue
+        kept.append(o)
+    return kept
+
+
+def merge_perception(
+    primary: PerceptionResult,
+    sidecar: PerceptionResult,
+    score: float | None = None,
+    lane_mask: np.ndarray | None = None,
+) -> PerceptionResult:
     """Keep typed heuristic instances; take sidecar road/occlusion; never return an empty HUD."""
     road = sidecar.road_polygon if len(sidecar.road_polygon) >= 3 else primary.road_polygon
     occ = sidecar.occluded_polygons if sidecar.occluded_polygons else primary.occluded_polygons
@@ -91,6 +133,7 @@ def merge_perception(primary: PerceptionResult, sidecar: PerceptionResult, score
     for extra in sidecar.observations:
         if all(bbox_iou(extra.bbox, p.bbox) < 0.30 for p in obs):
             obs.append(extra)
+    obs = gate_observations(obs, road, occ, lane_mask)
     return PerceptionResult(
         timestamp_ns=primary.timestamp_ns,
         source_frame_id=primary.source_frame_id,
@@ -119,7 +162,8 @@ class HybridPerceptionEngine:
             return h
         if len(s.road_polygon) < 3 and not s.observations and not s.occluded_polygons:
             return h
-        return merge_perception(h, s)
+        lane = getattr(self.sidecar, "last_lane_mask", None)
+        return merge_perception(h, s, lane_mask=lane if isinstance(lane, np.ndarray) else None)
 
     def capability(self) -> dict[str, Any]:
         cap = dict(self.primary.capability())

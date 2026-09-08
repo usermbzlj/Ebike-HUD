@@ -78,10 +78,13 @@ class HeuristicEngine(private val cfg: RparConfig) : PerceptionEngine {
             val near = full.crop(nearBox.x0, nearBox.y0, nearBox.x1, nearBox.y1).resize(nearW, nearH)
             val road = roadMask(full)
             occ = occlusionPolygons(full, sx, sy)
-            val farObs = if (skipFarRoi) emptyList() else detectOnRoi(
+            val nightFull = lowLight(full, road, quality)
+            val farObs = if (skipFarRoi || nightFull) emptyList() else detectOnRoi(
                 frame, far, quality, farBox.x0, farBox.y0, full.w, full.h, sx, sy, occ,
             )
-            val nearObs = detectOnRoi(frame, near, quality, nearBox.x0, nearBox.y0, full.w, full.h, sx, sy, occ)
+            val nearObs = if (nightFull) emptyList() else detectOnRoi(
+                frame, near, quality, nearBox.x0, nearBox.y0, full.w, full.h, sx, sy, occ,
+            )
             val geo = farObs + nearObs +
                 detectBlobs(frame, full, road, quality, occ, sx, sy) +
                 detectCircles(frame, full, road, quality, sx, sy) +
@@ -140,6 +143,32 @@ class HeuristicEngine(private val cfg: RparConfig) : PerceptionEngine {
             detectBumps(frame, roi, road, quality, 1f, 1f)).map(::lift)
     }
 
+    private fun roadMean(g: GrayImage, road: BooleanArray): Double {
+        var s = 0.0; var n = 0
+        for (i in road.indices) if (road[i]) { s += g.px[i]; n++ }
+        return if (n > 0) s / n else 80.0
+    }
+
+    private fun lowLight(g: GrayImage, road: BooleanArray, quality: FrameQualityMap?): Boolean {
+        if (roadMean(g, road) < 110.0) return true
+        return when (quality?.globalQuality?.visibilityClass) {
+            VisibilityClass.GLARE, VisibilityClass.UNDEREXPOSED, VisibilityClass.BLUR,
+            VisibilityClass.OCCLUDED, VisibilityClass.LENS_DROP -> true
+            else -> false
+        }
+    }
+
+    private fun regionMean(g: GrayImage, x0: Int, y0: Int, x1: Int, y1: Int): Double {
+        val xa = x0.coerceIn(0, g.w - 1)
+        val xb = x1.coerceIn(0, g.w - 1)
+        val ya = y0.coerceIn(0, g.h - 1)
+        val yb = y1.coerceIn(0, g.h - 1)
+        if (xb < xa || yb < ya) return 0.0
+        var s = 0.0; var n = 0
+        for (y in ya..yb) for (x in xa..xb) { s += g.at(x, y); n++ }
+        return if (n == 0) 0.0 else s / n
+    }
+
     private fun roadMask(g: GrayImage): BooleanArray {
         val m = BooleanArray(g.w * g.h)
         for (y in 0 until g.h) for (x in 0 until g.w) {
@@ -173,28 +202,35 @@ class HeuristicEngine(private val cfg: RparConfig) : PerceptionEngine {
         sy: Float,
     ): List<RoadObservation> {
         val blur = g.boxBlur(5)
-        var roadMean = 80.0; var n = 0
-        for (i in road.indices) if (road[i]) { roadMean += g.px[i]; n++ }
-        if (n > 0) roadMean /= n
-        val thr = maxOf(20, (roadMean * 0.55).toInt())
+        val mean = roadMean(g, road)
+        val night = lowLight(g, road, quality)
+        val thr = maxOf(if (night) 18 else 20, (mean * if (night) 0.42 else 0.55).toInt())
         val dark = BooleanArray(g.w * g.h)
         for (i in dark.indices) dark[i] = road[i] && blur.px[i] < thr
-        val opened = morphologyOpen(dark, g.w, g.h, 3)
-        val blobs = connectedComponents(opened, g.w, g.h, 80)
+        val opened = morphologyOpen(dark, g.w, g.h, if (night) 5 else 3)
+        val minArea = if (night) maxOf(220, (0.0015 * g.w * g.h).toInt()) else 80
+        val blobs = connectedComponents(opened, g.w, g.h, minArea)
         val out = ArrayList<RoadObservation>()
         for (b in blobs) {
             val area = b.area
-            if (area > 0.08 * g.w * g.h) continue
+            if (area > 0.05 * g.w * g.h) continue
             val ar = (b.x1 - b.x0 + 1).toDouble() / maxOf(1, b.y1 - b.y0)
-            if (ar > 4.5 || ar < 0.25) continue
+            if (ar > 3.2 || ar < 0.35) continue
             val bbox = floatArrayOf(b.x0 * sx, b.y0 * sy, b.x1 * sx, b.y1 * sy)
             if (insideOcc(bbox, occ)) continue
-            val poly = ellipsePolygon(b.cx * sx, b.cy * sy, (b.x1 - b.x0) * 0.5f * sx, (b.y1 - b.y0) * 0.5f * sy)
-            val (sem, geo, sev, conf) = if (b.circularity > 0.62) {
-                QuadT(SemanticType.POTHOLE, GeometryType.CONCAVE, Severity.MEDIUM, 0.72 + 0.2 * b.circularity)
+            val pad = 8
+            val core = regionMean(g, b.x0, b.y0, b.x1, b.y1)
+            val neigh = regionMean(g, b.x0 - pad, b.y0 - pad, b.x1 + pad, b.y1 + pad)
+            val contrast = neigh - core
+            if (night && (b.circularity < 0.72 || contrast < 18.0)) continue
+            val (sem, geo, sev, conf) = if (b.circularity > 0.68 && contrast > if (night) 22.0 else 12.0) {
+                QuadT(SemanticType.POTHOLE, GeometryType.CONCAVE, Severity.MEDIUM, 0.70 + 0.15 * b.circularity)
+            } else if (night) {
+                continue
             } else {
                 QuadT(SemanticType.UNKNOWN_ANOMALY, GeometryType.CONCAVE, Severity.LIGHT, 0.55)
             }
+            val poly = ellipsePolygon(b.cx * sx, b.cy * sy, (b.x1 - b.x0) * 0.5f * sx, (b.y1 - b.y0) * 0.5f * sy)
             out += makeObs(frame, poly, sem, geo, ObjectState.ABNORMAL, sev, conf, quality)
         }
         return out
@@ -208,6 +244,7 @@ class HeuristicEngine(private val cfg: RparConfig) : PerceptionEngine {
         sx: Float,
         sy: Float,
     ): List<RoadObservation> {
+        if (lowLight(g, road, quality)) return emptyList()
         val blur = g.boxBlur(5)
         val dark = BooleanArray(g.w * g.h)
         for (i in dark.indices) dark[i] = road[i] && blur.px[i] < 110
@@ -248,6 +285,7 @@ class HeuristicEngine(private val cfg: RparConfig) : PerceptionEngine {
         sx: Float,
         sy: Float,
     ): List<RoadObservation> {
+        if (lowLight(g, road, quality)) return emptyList()
         val energy = DoubleArray(g.h)
         for (y in 0 until g.h) {
             var s = 0.0; var n = 0
@@ -289,6 +327,7 @@ class HeuristicEngine(private val cfg: RparConfig) : PerceptionEngine {
         sx: Float,
         sy: Float,
     ): List<RoadObservation> {
+        if (lowLight(g, road, quality)) return emptyList()
         val energy = DoubleArray(g.h)
         for (y in 0 until g.h) {
             var s = 0.0; var n = 0
@@ -331,18 +370,39 @@ class HeuristicEngine(private val cfg: RparConfig) : PerceptionEngine {
         sy: Float,
     ): List<RoadObservation> {
         val lap = DoubleArray(g.w * g.h)
+        var luma = 0.0
+        var nLuma = 0
+        for (i in road.indices) if (road[i]) {
+            luma += g.px[i]
+            nLuma++
+        }
+        if (nLuma == 0) return emptyList()
+        if (luma / nLuma < 115.0) return emptyList()
+        val vis = quality?.globalQuality?.visibilityClass
+        if (vis == VisibilityClass.GLARE || vis == VisibilityClass.UNDEREXPOSED || vis == VisibilityClass.BLUR
+            || vis == VisibilityClass.OCCLUDED || vis == VisibilityClass.LENS_DROP) {
+            return emptyList()
+        }
+        val roadVals = ArrayList<Double>()
         for (y in 1 until g.h - 1) for (x in 1 until g.w - 1) {
             val v = (g.at(x, y - 1) + g.at(x - 1, y) + g.at(x + 1, y) + g.at(x, y + 1) - 4 * g.at(x, y)).toDouble()
             lap[y * g.w + x] = v * v
+            if (road[y * g.w + x]) roadVals.add(lap[y * g.w + x])
         }
-        val roadVals = lap.filterIndexed { i, _ -> road[i] }.sorted()
         if (roadVals.isEmpty()) return emptyList()
-        val thr = roadVals[(roadVals.size * 0.92).toInt().coerceIn(0, roadVals.lastIndex)]
+        roadVals.sort()
+        val med = roadVals[roadVals.size / 2]
+        val p99 = roadVals[(roadVals.size * 0.99).toInt().coerceIn(0, roadVals.lastIndex)]
+        if (p99 < maxOf(28.0, med * 6.0)) return emptyList()
+        val thr = maxOf(p99 * 0.92, med * 7.0)
         val hot = BooleanArray(g.w * g.h) { i -> road[i] && lap[i] > thr }
         val blobs = connectedComponents(morphologyOpen(hot, g.w, g.h, 5), g.w, g.h, 80)
-        return blobs.filter { it.area in 80..(0.12 * g.w * g.h).toInt() }.map { b ->
+        return blobs.filter { it.area in 80..(0.06 * g.w * g.h).toInt() }
+            .sortedByDescending { it.area }
+            .take(2)
+            .map { b ->
             val poly = rectPolygon(b.x0 * sx, b.y0 * sy, b.x1 * sx, b.y1 * sy)
-            makeObs(frame, poly, SemanticType.ROUGH_BROKEN, GeometryType.ROUGH, ObjectState.ABNORMAL, Severity.LIGHT, 0.58, quality)
+            makeObs(frame, poly, SemanticType.ROUGH_BROKEN, GeometryType.ROUGH, ObjectState.ABNORMAL, Severity.LIGHT, 0.70, quality)
         }
     }
 
@@ -390,6 +450,7 @@ class HeuristicEngine(private val cfg: RparConfig) : PerceptionEngine {
         sx: Float,
         sy: Float,
     ): List<RoadObservation> {
+        if (lowLight(g, road, quality)) return emptyList()
         val blur = g.boxBlur(5)
         val hot = BooleanArray(g.w * g.h) { i ->
             val v = g.px[i]

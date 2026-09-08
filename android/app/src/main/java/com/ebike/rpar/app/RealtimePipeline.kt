@@ -318,18 +318,19 @@ class RealtimePipeline(
 
     private fun primitives(objs: List<TrackedRoadObject>, uiMode: UiMode, qmap: com.ebike.rpar.model.FrameQualityMap, frameW: Int, frameH: Int, yawRate: Double = 0.0, latencyMs: Double = 0.0): List<RenderPrimitive> {
         val prims = ArrayList<RenderPrimitive>()
-        if (uiMode == UiMode.RESEARCH && lastRoadPolygon.size >= 3) {
+        if (lastRoadPolygon.size >= 3) {
+            val a = if (uiMode == UiMode.RIDING) 0.50f else 0.62f
             prims += RenderPrimitive(
-                -6, lastRoadPolygon, floatArrayOf(0.18f, 0.72f, 0.42f, 0.16f),
-                dashed = true, thickness = 1f, label = null, labelPriority = 85, fade = 0.6f, kind = "road",
+                -6, lastRoadPolygon, floatArrayOf(0.12f, 0.92f, 0.38f, a),
+                dashed = false, thickness = 2f, label = null, labelPriority = 85, fade = 0.6f, kind = "road",
             )
         }
         lastOccPolygons.forEachIndexed { i, poly ->
             if (poly.size < 3) return@forEachIndexed
             prims += RenderPrimitive(
-                -7 - i, poly, floatArrayOf(0.45f, 0.5f, 0.58f, 0.28f),
-                dashed = true, thickness = 1f,
-                label = if (uiMode == UiMode.RESEARCH) "occlusion" else null,
+                -7 - i, poly, floatArrayOf(1.0f, 0.55f, 0.12f, 0.58f),
+                dashed = false, thickness = 2f,
+                label = if (uiMode == UiMode.RESEARCH) "vehicle" else null,
                 labelPriority = 86, fade = 0.7f, kind = "occlusion",
             )
         }
@@ -388,6 +389,8 @@ class RealtimePipeline(
             if (obj.lifecycleState == LifecycleState.EXPIRED) continue
             val info = obj.semanticType in EnumCopy.INFO_LAYER
             if (info && !showInfoLayer) continue
+            if (!info && obj.lifecycleState == LifecycleState.TRACKED) continue
+            if (!info && obj.lifecycleState == LifecycleState.CANDIDATE) continue
             val fade0 = when (obj.lifecycleState) {
                 LifecycleState.PASSED -> 0.35f
                 LifecycleState.CANDIDATE -> cfg.render.candidateAlpha
@@ -406,7 +409,7 @@ class RealtimePipeline(
             val dashed = obj.lifecycleState == LifecycleState.CANDIDATE || obj.lifecycleState == LifecycleState.TRACKED
             var label: String? = null
             val allow = uiMode == UiMode.RESEARCH || labeled < cfg.render.ridingMaxLabels
-            if (allow && obj.lifecycleState != LifecycleState.CANDIDATE && !(info && uiMode == UiMode.RIDING)) {
+            if (allow && obj.lifecycleState in setOf(LifecycleState.CONFIRMED, LifecycleState.ALERTED) && !(info && uiMode == UiMode.RIDING)) {
                 val distTxt = geometry.displayDistance(obj.distanceM, obj.distanceValid, obj.distanceConfidence)
                 label = if (uiMode == UiMode.RIDING) {
                     val dirCn = EnumCopy.DIRECTION_TTS[obj.direction] ?: ""

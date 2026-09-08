@@ -278,7 +278,12 @@ def run_video_file(
     k = default_intrinsics(w, h)
     own_engine = engine is None
     eng = engine if engine is not None else load_field_engine(cfg, prefer_yolop=prefer_yolop)
-    pipe = RealtimePipeline(cfg, eng, GeometryEngine(mount, cfg.geometry, k))
+    cap_info0 = eng.capability() if hasattr(eng, "capability") else {}
+    sidecar0 = cap_info0.get("sidecar") if isinstance(cap_info0.get("sidecar"), dict) else {}
+    version = cfg.model.package_id
+    if cap_info0.get("hybrid"):
+        version = f"{version}+{sidecar0.get('backend', 'sidecar')}"
+    pipe = RealtimePipeline(cfg, eng, GeometryEngine(mount, cfg.geometry, k), model_version=version)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     vw = cv2.VideoWriter(str(out_dir / "overlay.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
@@ -325,13 +330,17 @@ def run_video_file(
             location=None,
             speed_mps=10.5,
         )
-        view = pipe.step(frame, ui_mode=UiMode.RESEARCH)
-        composed = compose(bgr, view, UiMode.RESEARCH)
+        view = pipe.step(frame, ui_mode=UiMode.RIDING)
+        composed = compose(bgr, view, UiMode.RIDING)
         vw.write(composed)
         if i in still_at:
             still_path = out_dir / f"overlay_{i:04d}.jpg"
             cv2.imwrite(str(still_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
             stills.append(str(still_path))
+            ride = pipe.view_with_mode(view, UiMode.RIDING)
+            ride_path = out_dir / f"riding_{i:04d}.jpg"
+            cv2.imwrite(str(ride_path), compose(bgr, ride, UiMode.RIDING), [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+            stills.append(str(ride_path))
         alerts += sum(1 for a in view.alerts if a.fired)
         blurs.append(view.blur)
         glares.append(view.glare)

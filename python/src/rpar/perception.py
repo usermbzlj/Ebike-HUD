@@ -55,6 +55,27 @@ def _road_mask(bgr: np.ndarray) -> np.ndarray:
     return mask
 
 
+def _road_luma(gray: np.ndarray, road: np.ndarray) -> float:
+    sel = road.astype(bool)
+    if not sel.any():
+        return 80.0
+    return float(gray[sel].mean())
+
+
+def _low_light(gray: np.ndarray, road: np.ndarray, quality: FrameQualityMap | None) -> bool:
+    """Night sensor noise and glare must not spawn instance labels."""
+    if _road_luma(gray, road) < 110.0:
+        return True
+    vis = quality.global_quality.visibility_class if quality else VisibilityClass.UNKNOWN
+    return vis in {
+        VisibilityClass.GLARE,
+        VisibilityClass.UNDEREXPOSED,
+        VisibilityClass.BLUR,
+        VisibilityClass.OCCLUDED,
+        VisibilityClass.LENS_DROP,
+    }
+
+
 def _occlusion_polygons(bgr: np.ndarray, road: np.ndarray) -> list[list[tuple[float, float]]]:
     h, w = bgr.shape[:2]
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
@@ -200,28 +221,40 @@ class HeuristicPerceptionEngine:
     ) -> list[RoadObservation]:
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
         blur = cv2.GaussianBlur(gray, (7, 7), 0)
-        road_mean = float(gray[road > 0].mean()) if np.any(road) else 80.0
-        thr = max(20, int(road_mean * 0.55))
+        road_mean = _road_luma(gray, road)
+        night = _low_light(gray, road, quality)
+        thr = max(18 if night else 20, int(road_mean * (0.42 if night else 0.55)))
         dark = cv2.threshold(blur, thr, 255, cv2.THRESH_BINARY_INV)[1]
         dark = cv2.bitwise_and(dark, road)
-        dark = cv2.morphologyEx(dark, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+        dark = cv2.morphologyEx(dark, cv2.MORPH_OPEN, np.ones((7, 7) if night else (5, 5), np.uint8))
         contours, _ = cv2.findContours(dark, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         h, w = gray.shape
         out: list[RoadObservation] = []
+        min_area = 1400.0 if night else 220.0
         for c in contours:
             area = cv2.contourArea(c)
-            if area < 220 or area > 0.08 * w * h:
+            if area < min_area or area > 0.05 * w * h:
                 continue
             x, y, ww, hh = cv2.boundingRect(c)
             ar = ww / max(hh, 1)
-            if ar > 4.5 or ar < 0.25:
+            if ar > 3.2 or ar < 0.35:
                 continue
             bbox = (float(x), float(y), float(x + ww), float(y + hh))
             if self._inside_occlusion(bbox, occ):
                 continue
             circ = 4 * np.pi * area / max(cv2.arcLength(c, True) ** 2, 1e-3)
-            if circ > 0.62:
-                sem, geo, sev, conf = SemanticType.POTHOLE, GeometryType.CONCAVE, Severity.MEDIUM, 0.72 + 0.2 * circ
+            pad = 8
+            neigh = gray[max(0, y - pad) : y + hh + pad, max(0, x - pad) : x + ww + pad]
+            core = gray[y : y + hh, x : x + ww]
+            if core.size == 0 or neigh.size == 0:
+                continue
+            contrast = float(neigh.mean() - core.mean())
+            if night and (circ < 0.72 or contrast < 18.0):
+                continue
+            if circ > 0.68 and contrast > (22.0 if night else 12.0):
+                sem, geo, sev, conf = SemanticType.POTHOLE, GeometryType.CONCAVE, Severity.MEDIUM, 0.70 + 0.15 * circ
+            elif night:
+                continue
             else:
                 sem, geo, sev, conf = SemanticType.UNKNOWN_ANOMALY, GeometryType.CONCAVE, Severity.LIGHT, 0.55
             out.append(_contour_to_obs(c, frame, sem, geo, ObjectState.ABNORMAL, sev, conf, quality))
@@ -235,6 +268,8 @@ class HeuristicPerceptionEngine:
         quality: FrameQualityMap | None,
     ) -> list[RoadObservation]:
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        if _low_light(gray, road, quality):
+            return []
         masked = cv2.bitwise_and(gray, road)
         circles = cv2.HoughCircles(
             cv2.GaussianBlur(masked, (9, 9), 2),
@@ -287,6 +322,8 @@ class HeuristicPerceptionEngine:
         quality: FrameQualityMap | None,
     ) -> list[RoadObservation]:
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        if _low_light(gray, road, quality):
+            return []
         h, w = gray.shape
         edges = cv2.Canny(gray, 40, 120)
         edges = cv2.bitwise_and(edges, road)
@@ -351,6 +388,8 @@ class HeuristicPerceptionEngine:
     ) -> list[RoadObservation]:
         """PER-007: thin transverse seams, not convex speed bumps."""
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        if _low_light(gray, road, quality):
+            return []
         h, w = gray.shape
         edges = cv2.Canny(gray, 50, 140)
         edges = cv2.bitwise_and(edges, road)
@@ -413,21 +452,48 @@ class HeuristicPerceptionEngine:
         road: np.ndarray,
         quality: FrameQualityMap | None,
     ) -> list[RoadObservation]:
+        """Only local texture outliers. Never label the roughest 8% of a smooth road (night FP storm)."""
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-        lap = cv2.Laplacian(gray, cv2.CV_32F)
-        var = cv2.blur(lap**2, (21, 21))
         road_f = road.astype(bool)
         if not road_f.any():
             return []
-        thr = float(np.quantile(var[road_f], 0.92))
-        hot = ((var > thr) & road_f).astype(np.uint8) * 255
-        hot = cv2.morphologyEx(hot, cv2.MORPH_OPEN, np.ones((11, 11), np.uint8))
+        road_mean = float(gray[road_f].mean())
+        vis = quality.global_quality.visibility_class if quality else VisibilityClass.UNKNOWN
+        if road_mean < 115.0 or vis in {
+            VisibilityClass.GLARE,
+            VisibilityClass.UNDEREXPOSED,
+            VisibilityClass.BLUR,
+            VisibilityClass.OCCLUDED,
+            VisibilityClass.LENS_DROP,
+        }:
+            return []
+        lap = cv2.Laplacian(gray, cv2.CV_32F)
+        var = cv2.blur(lap**2, (21, 21))
+        vals = var[road_f]
+        med = float(np.median(vals))
+        p99 = float(np.quantile(vals, 0.99))
+        if med < 1e-3 or p99 < max(28.0, med * 6.0):
+            return []
+        hot = ((var > max(p99 * 0.92, med * 7.0)) & road_f).astype(np.uint8) * 255
+        hot = cv2.morphologyEx(hot, cv2.MORPH_OPEN, np.ones((15, 15), np.uint8))
         contours, _ = cv2.findContours(hot, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        out = []
         h, w = gray.shape
+        scored: list[tuple[float, np.ndarray]] = []
         for c in contours:
-            if cv2.contourArea(c) < 500 or cv2.contourArea(c) > 0.12 * w * h:
+            area = cv2.contourArea(c)
+            if area < 900 or area > 0.06 * w * h:
                 continue
+            mask = np.zeros((h, w), np.uint8)
+            cv2.drawContours(mask, [c], -1, 1, -1)
+            peak = float(var[mask.astype(bool)].mean()) if mask.any() else 0.0
+            ratio = peak / max(med, 1e-3)
+            if ratio < 7.0:
+                continue
+            scored.append((ratio, c))
+        scored.sort(key=lambda t: t[0], reverse=True)
+        out = []
+        for ratio, c in scored[:2]:
+            conf = float(np.clip(0.62 + 0.04 * (ratio - 7.0), 0.62, 0.88))
             out.append(
                 _contour_to_obs(
                     c,
@@ -436,7 +502,7 @@ class HeuristicPerceptionEngine:
                     GeometryType.ROUGH,
                     ObjectState.ABNORMAL,
                     Severity.LIGHT,
-                    0.58,
+                    conf,
                     quality,
                 )
             )
@@ -502,6 +568,8 @@ class HeuristicPerceptionEngine:
     ) -> list[RoadObservation]:
         """PER-013: scattered high-texture debris as info-layer."""
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        if _low_light(gray, road, quality):
+            return []
         blur = cv2.GaussianBlur(gray, (7, 7), 0)
         tex = cv2.absdiff(gray, blur)
         road_f = road > 0

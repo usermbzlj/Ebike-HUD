@@ -253,6 +253,7 @@ class TrackEngine(private val cfg: TrackingConfig) {
         val age = (nowNs - tr.createdNs) / 1e9
         var need = cfg.minConfirmHits
         if (tr.semantic == SemanticType.UNKNOWN_ANOMALY) need += cfg.unknownAnomalyExtraHits
+        if (tr.semantic == SemanticType.ROUGH_BROKEN) need += 3
         if (tr.state == LifecycleState.CANDIDATE) {
             if (!observed) {
                 if ((nowNs - tr.lastNs) / 1e9 > cfg.candidateMaxAgeS) {

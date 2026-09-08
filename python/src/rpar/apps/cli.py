@@ -133,6 +133,10 @@ def main(argv: list[str] | None = None) -> int:
     el.add_argument("session")
     el.add_argument("--out", default="artifacts/error_lib")
 
+    df = sub.add_parser("distill-field", help="distill YOLOPv2 teacher masks from Video/ into dual-scale classmap")
+    df.add_argument("--out", default="models/roadseg-field-0.1.0")
+    df.add_argument("--frames-per-clip", type=int, default=12)
+
     args = p.parse_args(argv)
     if args.cmd == "serve":
         from rpar.apps.server import main as serve_main
@@ -234,6 +238,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "train-seg":
         print(json.dumps(write_seg_bundle(Path(args.out), export_tflite=args.export_tflite, package_dir=Path(args.package) if args.package else None), indent=2)[:4000])
+        return 0
+    if args.cmd == "distill-field":
+        from rpar.field_video import list_clips, repo_video_dir
+        from rpar.ml.field_distill import distill_from_videos
+
+        clips = [Path(c["path"]) for c in list_clips(repo_video_dir()) if c.get("ok")]
+        print(json.dumps(distill_from_videos(clips, Path(args.out), frames_per_clip=args.frames_per_clip), indent=2))
         return 0
     if args.cmd == "export":
         src = Path(args.session)

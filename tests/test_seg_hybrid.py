@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import numpy as np
+
 from rpar.config import load_config
 from rpar.enums import GeometryType, InferenceBackend, ObjectState, SemanticType, Severity, VisibilityClass
 from rpar.ml.seg_train import classmap_precision_cards, train_dual_scale_classmap
 from rpar.models import PerceptionResult, RoadObservation
 from rpar.perception import HeuristicPerceptionEngine, load_engine
-from rpar.segengine import DualScaleSegEngine, HybridPerceptionEngine, merge_perception
+from rpar.segengine import DualScaleSegEngine, HybridPerceptionEngine, gate_observations, merge_perception
 from rpar.simulator import RoadSimulator, SimConfig
 from rpar.tracking import TrackEngine
 
@@ -46,7 +48,7 @@ def test_merge_keeps_heuristic_when_sidecar_has_instances():
         source_frame_id=0,
         road_polygon=[(1, 11), (40, 11), (40, 30), (1, 30)],
         occluded_polygons=[[(2, 2), (6, 2), (6, 6), (2, 6)]],
-        observations=[_obs(SemanticType.UNKNOWN_ANOMALY, (50, 50, 60, 60), 0.5)],
+        observations=[_obs(SemanticType.UNKNOWN_ANOMALY, (12, 14, 18, 22), 0.5)],
         backend=InferenceBackend.CPU,
         latency_ms=7.0,
         input_sizes=[(96, 48)],
@@ -57,6 +59,46 @@ def test_merge_keeps_heuristic_when_sidecar_has_instances():
     assert any(o.semantic_type == SemanticType.POTHOLE for o in m.observations)
     assert any(o.semantic_type == SemanticType.UNKNOWN_ANOMALY for o in m.observations)
     assert m.latency_ms == 7.0
+
+
+def test_merge_drops_off_road_and_occluded():
+    h = PerceptionResult(
+        timestamp_ns=1,
+        source_frame_id=0,
+        road_polygon=[(0, 0), (10, 0), (10, 10), (0, 10)],
+        occluded_polygons=[],
+        observations=[
+            _obs(SemanticType.POTHOLE, (12, 14, 18, 22)),
+            _obs(SemanticType.MANHOLE_COVER, (80, 80, 90, 90)),
+            _obs(SemanticType.POTHOLE, (3, 3, 5, 5)),
+        ],
+        backend=InferenceBackend.HEURISTIC,
+        latency_ms=4.0,
+        input_sizes=[(96, 48)],
+    )
+    s = PerceptionResult(
+        timestamp_ns=1,
+        source_frame_id=0,
+        road_polygon=[(1, 11), (40, 11), (40, 30), (1, 30)],
+        occluded_polygons=[[(2, 2), (6, 2), (6, 6), (2, 6)]],
+        observations=[],
+        backend=InferenceBackend.CPU,
+        latency_ms=7.0,
+        input_sizes=[(96, 48)],
+    )
+    m = merge_perception(h, s)
+    kinds = {o.semantic_type for o in m.observations}
+    assert SemanticType.POTHOLE in kinds
+    assert SemanticType.MANHOLE_COVER not in kinds
+    assert all(not (3 <= o.bbox[0] <= 5 and 3 <= o.bbox[1] <= 5) for o in m.observations)
+
+
+def test_gate_drops_lane_line_centers():
+    obs = [_obs(SemanticType.POTHOLE, (10, 10, 20, 20))]
+    mask = np.zeros((40, 40), dtype=np.float32)
+    mask[15, 15] = 0.9
+    kept = gate_observations(obs, [(0, 0), (40, 0), (40, 40), (0, 40)], [], mask)
+    assert kept == []
 
 
 def test_hybrid_occlusion_only_sidecar_merges():

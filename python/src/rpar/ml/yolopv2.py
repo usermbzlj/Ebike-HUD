@@ -158,13 +158,34 @@ def da_mask(seg: np.ndarray, pad_wh: tuple[float, float], out_hw: tuple[int, int
     return cv2.resize(road, (w, h), interpolation=cv2.INTER_LINEAR)
 
 
+def lane_mask(seg: np.ndarray, pad_wh: tuple[float, float], out_hw: tuple[int, int]) -> np.ndarray:
+    temp = np.asarray(seg[0][0], dtype=np.float32)
+    pad_w, pad_h = int(pad_wh[0]), int(pad_wh[1])
+    sh, sw = temp.shape[:2]
+    y1, y2 = pad_h, sh - pad_h if pad_h else sh
+    x1, x2 = pad_w, sw - pad_w if pad_w else sw
+    cropped = temp if y2 <= y1 + 4 or x2 <= x1 + 4 else temp[y1:y2, x1:x2]
+    h, w = out_hw
+    return cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
+
+
 def is_vehicle_box(cls_id: float, box: tuple[float, float, float, float], frame_hw: tuple[int, int]) -> bool:
     h, w = frame_hw
     x1, y1, x2, y2 = box
     bw, bh = max(1.0, x2 - x1), max(1.0, y2 - y1)
-    if bw * bh < 0.0010 * w * h:
+    area = bw * bh
+    if area < 0.0010 * w * h:
         return False
-    if y2 < 0.18 * h:
+    if area > 0.22 * w * h:
+        return False
+    if y2 < 0.22 * h:
+        return False
+    aspect = bw / bh
+    if aspect > 4.2 or aspect < 0.28:
+        return False
+    if x1 < 0.03 * w and bw < 0.14 * w and bh > 0.35 * h:
+        return False
+    if x2 > 0.97 * w and bw < 0.14 * w and bh > 0.35 * h:
         return False
     if bh < 0.025 * h and bw < 0.035 * w:
         return False
@@ -220,12 +241,13 @@ def paint_drivable(
 class Yolopv2Engine:
     """Desktop ONNX runtime. Tensors never leave this class (PER-014)."""
 
-    def __init__(self, weights: Path | None = None, score_th: float = 0.25, nms_th: float = 0.45) -> None:
+    def __init__(self, weights: Path | None = None, score_th: float = 0.38, nms_th: float = 0.45) -> None:
         self.weights = Path(weights) if weights else default_weights_path()
         self.score_th = score_th
         self.nms_th = nms_th
         self._session = None
         self.last_da_mask: np.ndarray | None = None
+        self.last_lane_mask: np.ndarray | None = None
         self.last_boxes: list[tuple[float, float, float, float]] = []
 
     def _ort(self):
@@ -268,6 +290,10 @@ class Yolopv2Engine:
                 boxes_out.append(box)
         road_m = da_mask(results[4], pad_wh, (h, w))
         self.last_da_mask = road_m
+        try:
+            self.last_lane_mask = lane_mask(results[5], pad_wh, (h, w))
+        except Exception:
+            self.last_lane_mask = None
         self.last_boxes = boxes_out
         road_poly = mask_to_polygon(road_m)
         return PerceptionResult(

@@ -103,6 +103,21 @@ class RealtimePipeline:
         self.last_road_polygon: list[tuple[float, float]] = []
         self.last_occluded: list[list[tuple[float, float]]] = []
         self._prev_gray: np.ndarray | None = None
+        self._last_tracked: list = []
+        self._last_qmap: FrameQualityMap | None = None
+        self._last_frame_wh: tuple[int, int] = (1, 1)
+        self._last_yaw = 0.0
+        self._last_p95 = 0.0
+
+    def view_with_mode(self, view, ui_mode: UiMode):
+        from dataclasses import replace
+
+        q = self._last_qmap or view.quality
+        if q is None:
+            return view
+        w, h = self._last_frame_wh
+        prims = self._primitives(self._last_tracked, ui_mode, q, w, h, self._last_yaw, self._last_p95)
+        return replace(view, primitives=prims)
 
     def reset(self) -> None:
         self.tracker.reset()
@@ -343,6 +358,11 @@ class RealtimePipeline:
             yaw_rate=float(frame.angular_velocity[2]) if frame.angular_velocity else 0.0,
             latency_ms=p95,
         )
+        self._last_tracked = tracked_objs
+        self._last_qmap = sel_q
+        self._last_frame_wh = (sel_frame.meta.width, sel_frame.meta.height)
+        self._last_yaw = float(frame.angular_velocity[2]) if frame.angular_velocity else 0.0
+        self._last_p95 = p95
         infer_fps = 0.0
         if len(self._infer_times) >= 2:
             span = (self._infer_times[-1] - self._infer_times[0]) / 1e9
@@ -390,15 +410,15 @@ class RealtimePipeline:
         latency_ms: float = 0.0,
     ) -> list[RenderPrimitive]:
         prims: list[RenderPrimitive] = []
-        if ui_mode == UiMode.RESEARCH and self.last_road_polygon:
+        if self.last_road_polygon:
             prims.append(
                 RenderPrimitive(
                     track_id=-6,
                     polygon=self.last_road_polygon,
-                    color_rgba=(0.12, 0.92, 0.38, 0.62),
+                    color_rgba=(0.12, 0.92, 0.38, 0.50 if ui_mode == UiMode.RIDING else 0.62),
                     dashed=False,
                     thickness=2.0,
-                    label="road",
+                    label=None,
                     label_priority=85,
                     fade=0.6,
                     kind="road",
@@ -517,10 +537,14 @@ class RealtimePipeline:
         overlay_a = float(np.clip(self.cfg.render.overlay_alpha, 0.15, 1.0))
         show_info = bool(self.cfg.render.show_info_layer)
         for obj in objs:
-            if obj.lifecycle_state in {LifecycleState.EXPIRED}:
+            if obj.lifecycle_state in {LifecycleState.EXPIRED, LifecycleState.CANDIDATE}:
                 continue
             info = obj.semantic_type in INFO_LAYER_SEMANTICS
             if info and not show_info:
+                continue
+            # PER-010: TRACKED is not a confirmed instance. Drawing it as a solid/label
+            # is what filled the night HUD with 0.58 rough_broken spam.
+            if (not info) and obj.lifecycle_state == LifecycleState.TRACKED:
                 continue
             if obj.lifecycle_state == LifecycleState.PASSED:
                 fade = 0.35
@@ -549,7 +573,7 @@ class RealtimePipeline:
             dashed = obj.lifecycle_state in {LifecycleState.CANDIDATE, LifecycleState.TRACKED}
             label = None
             allow_label = ui_mode == UiMode.RESEARCH or labeled < self.cfg.render.riding_max_labels
-            if allow_label and obj.lifecycle_state != LifecycleState.CANDIDATE and not (info and ui_mode == UiMode.RIDING):
+            if allow_label and obj.lifecycle_state in {LifecycleState.CONFIRMED, LifecycleState.ALERTED} and not (info and ui_mode == UiMode.RIDING):
                 dist_txt = self.geometry.display_distance(obj.distance_m, obj.distance_valid, obj.distance_confidence)
                 if ui_mode == UiMode.RIDING:
                     dir_cn = {
