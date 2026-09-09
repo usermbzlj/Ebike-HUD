@@ -282,6 +282,7 @@ def run_video_file(
     prefer_bump: bool = False,
     still_ratios: tuple[float, ...] = (0.25, 0.45, 0.65),
     ui_mode: UiMode = UiMode.RIDING,
+    start_s: float = 0.0,
 ) -> dict[str, Any]:
     cfg = cfg or load_config()
     cap = cv2.VideoCapture(str(path))
@@ -309,6 +310,8 @@ def run_video_file(
     from rpar.models import FrameMeta, SynchronizedFrame
 
     n_src = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    if start_s > 0:
+        cap.set(cv2.CAP_PROP_POS_MSEC, float(start_s) * 1000.0)
     if max_frames is None or max_frames <= 0:
         limit = n_src if n_src > 0 else 10_000_000
     else:
@@ -440,6 +443,7 @@ def run_video_file(
         "first_confirm_distance_m": first_confirm,
         "first_confirm_median_m": float(np.median(list(first_confirm.values()))) if first_confirm else None,
         "first_confirm_is_gt": False,
+        "start_s": float(start_s),
         "mean_blur": float(np.mean(blurs)) if blurs else None,
         "mean_glare": float(np.mean(glares)) if glares else None,
         "mean_infer_fps": pipe.last_view.infer_fps if pipe.last_view else 0.0,

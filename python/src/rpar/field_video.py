@@ -360,6 +360,7 @@ def run_field_videos(
     prefer_yolop: bool = False,
     prefer_bump: bool = False,
     ui_mode: UiMode | None = None,
+    start_s: float = 0.0,
 ) -> dict[str, Any]:
     """Run the field pipeline on every local clip. YOLOPv2 / bump net are opt-in so pytest stays fast."""
     cfg = cfg or load_config()
@@ -383,7 +384,7 @@ def run_field_videos(
             dest = out_dir / alias
             dest.mkdir(parents=True, exist_ok=True)
             extract_preview(src, dest / "preview.jpg")
-            metrics = run_video_file(src, dest, cfg, max_frames=max_frames, engine=engine, ui_mode=mode)
+            metrics = run_video_file(src, dest, cfg, max_frames=max_frames, engine=engine, ui_mode=mode, start_s=start_s)
             yolop_stills = render_yolop_stills(src, dest, engine) if prefer_yolop else []
             row = {
                 **clip,
@@ -402,6 +403,7 @@ def run_field_videos(
         "max_frames": max_frames,
         "prefer_yolop": prefer_yolop,
         "prefer_bump": prefer_bump,
+        "start_s": start_s,
         "ui_mode": mode.value,
         "hybrid": hybrid,
         "results": results,

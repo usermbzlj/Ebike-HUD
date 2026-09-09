@@ -329,7 +329,7 @@ class RealtimePipeline(
     private fun primitives(objs: List<TrackedRoadObject>, uiMode: UiMode, qmap: com.ebike.rpar.model.FrameQualityMap, frameW: Int, frameH: Int, yawRate: Double = 0.0, latencyMs: Double = 0.0): List<RenderPrimitive> {
         val prims = ArrayList<RenderPrimitive>()
         if (lastRoadPolygon.size >= 3) {
-            val a = if (uiMode == UiMode.RIDING) 0.16f else 0.28f
+            val a = if (uiMode == UiMode.RIDING) 0.10f else 0.22f
             prims += RenderPrimitive(
                 -6, lastRoadPolygon, floatArrayOf(0.12f, 0.92f, 0.38f, a),
                 dashed = false, thickness = 2f, label = null, labelPriority = 85, fade = 0.32f, kind = "road",
@@ -445,7 +445,11 @@ class RealtimePipeline(
                 label = label,
                 labelPriority = obj.labelRank ?: 50,
                 fade = fade,
-                kind = if (info) "info" else "anomaly",
+                kind = when {
+                    info -> "info"
+                    EnumCopy.isBumpHazard(obj.semanticType, obj.geometryType, obj.objectState) -> "bump"
+                    else -> "anomaly"
+                },
             )
         }
         return prims

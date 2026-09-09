@@ -52,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     fv.add_argument("--catalog-only", action="store_true")
     fv.add_argument("--no-yolop", action="store_true", help="skip YOLOPv2 even if models/yolopv2/YOLOPv2.onnx exists")
     fv.add_argument("--no-bump", action="store_true", help="skip YOLO-World bump net even if local weights exist")
+    fv.add_argument("--start-s", type=float, default=0.0, help="skip this many seconds at the start of each clip")
     fv.add_argument("--research", action="store_true", help="research HUD overlay (more labels)")
 
     sim = sub.add_parser("simulate", help="write a raw synthetic preview mp4")
@@ -198,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(write_catalog(vdir), indent=2, ensure_ascii=False))
             return 0
         ui = UiMode.RESEARCH if args.research else UiMode.RIDING
-        print(json.dumps(run_field_videos(vdir, Path(args.out), max_frames=args.max_frames, prefer_yolop=not args.no_yolop, prefer_bump=not args.no_bump, ui_mode=ui), indent=2, ensure_ascii=False)[:8000])
+        print(json.dumps(run_field_videos(vdir, Path(args.out), max_frames=args.max_frames, prefer_yolop=not args.no_yolop, prefer_bump=not args.no_bump, ui_mode=ui, start_s=args.start_s), indent=2, ensure_ascii=False)[:8000])
         return 0
     if args.cmd == "simulate":
         simu = RoadSimulator(SimConfig(night=args.night, duration_s=3.0))
