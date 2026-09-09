@@ -328,10 +328,10 @@ class RealtimePipeline(
     private fun primitives(objs: List<TrackedRoadObject>, uiMode: UiMode, qmap: com.ebike.rpar.model.FrameQualityMap, frameW: Int, frameH: Int, yawRate: Double = 0.0, latencyMs: Double = 0.0): List<RenderPrimitive> {
         val prims = ArrayList<RenderPrimitive>()
         if (lastRoadPolygon.size >= 3) {
-            val a = if (uiMode == UiMode.RIDING) 0.50f else 0.62f
+            val a = if (uiMode == UiMode.RIDING) 0.16f else 0.28f
             prims += RenderPrimitive(
                 -6, lastRoadPolygon, floatArrayOf(0.12f, 0.92f, 0.38f, a),
-                dashed = false, thickness = 2f, label = null, labelPriority = 85, fade = 0.6f, kind = "road",
+                dashed = false, thickness = 2f, label = null, labelPriority = 85, fade = 0.32f, kind = "road",
             )
         }
         lastOccPolygons.forEachIndexed { i, poly ->
@@ -410,6 +410,8 @@ class RealtimePipeline(
             var color = when {
                 info && obj.semanticType == SemanticType.PUDDLE -> floatArrayOf(0.35f, 0.55f, 0.88f, fade)
                 info -> floatArrayOf(0.72f, 0.66f, 0.42f, fade)
+                EnumCopy.isBumpHazard(obj.semanticType, obj.geometryType, obj.objectState) ->
+                    floatArrayOf(0.95f, 0.28f, 0.16f, fade)
                 obj.geometryType.wire == "concave" -> floatArrayOf(0.15f, 0.82f, 0.78f, fade)
                 obj.geometryType.wire == "rough" -> floatArrayOf(0.95f, 0.78f, 0.25f, fade)
                 else -> floatArrayOf(0.55f, 0.85f, 0.95f, fade)
@@ -422,7 +424,12 @@ class RealtimePipeline(
                 val distTxt = geometry.displayDistance(obj.distanceM, obj.distanceValid, obj.distanceConfidence)
                 label = if (uiMode == UiMode.RIDING) {
                     val dirCn = EnumCopy.DIRECTION_TTS[obj.direction] ?: ""
-                    "$dirCn ${distTxt ?: ""}".trim()
+                    if (EnumCopy.isBumpHazard(obj.semanticType, obj.geometryType, obj.objectState)) {
+                        val kind = EnumCopy.bumpKind(obj.semanticType, obj.geometryType, obj.objectState)
+                        if (distTxt != null) "$dirCn$kind · $distTxt" else "$dirCn$kind"
+                    } else {
+                        "$dirCn ${distTxt ?: ""}".trim()
+                    }
                 } else {
                     "ID ${obj.trackId} · ${obj.semanticType.wire} · ${"%.2f".format(obj.modelConfidence)}" +
                         (if (distTxt != null) " · $distTxt" else "")

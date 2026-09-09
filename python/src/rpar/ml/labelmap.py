@@ -124,14 +124,14 @@ def map_public_label(source: str, raw: str, severity: str | int | None = None) -
             False,
             "ordinary cover is hard-negative; height_state comes from self-labeling",
         )
-    if key in {"open manhole", "open manhole cover"}:
+    if key in {"open manhole", "open manhole cover", "sunken manhole", "sunken manhole cover", "settled manhole", "sunken cover"}:
         return out(
             SemanticType.MANHOLE_COVER,
             GeometryType.CONCAVE,
             ObjectState.ABNORMAL,
             Severity.HEAVY,
             True,
-            "open cover is abnormal geometry, not a synonym of pothole",
+            "open or sunken cover is abnormal geometry, not a synonym of pothole",
         )
     if key in {"longitudinal patch", "transverse patch", "patch", "repair patch", "repair"}:
         return out(

@@ -28,6 +28,8 @@
 
 桌面可选用 YOLOPv2 ONNX（`models/yolopv2/YOLOPv2.onnx`，约 156 MB，不入库）作为**可行驶区域 + 车辆遮挡** sidecar。权重来自 BDD 风格驾驶场景，输入 640 动态 letterbox，在 CPU 上跑。它**不是**坑洞/井盖/减速带检测器，也不是 PKC110 上的 LiteRT 包；空输出不得清空 HUD。
 
+桌面颠簸三类改走 **YOLO-World** 开集检测（`models/yolo-world/yolov8m-worldv2.pt`，不入库），提示词仅为大坑 / 减速带 / 下沉井盖，可用 `Video/train/inbox` 自采微调。无本地权重时启发式兜底，空输出不得清空 HUD。这仍不是 PKC110 上的量化实例网。
+
 桌面黄金回归使用合成道路（已知距离与方位），用来锁住跟踪、门控、几何与提醒策略；不能替代 PKC110 实路 10 h 误提醒统计。
 
 夜间路面噪声、尾灯纹理不得被标成 `rough_broken`。启发式不再用「路上相对最糙的 8%」当破损；低照/眩光下该类检测关闭。研究模式也不再把未确认的 TRACKED 画成实线标签。YOLOPv2 只负责可行驶区域和车辆遮挡。

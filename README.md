@@ -65,6 +65,8 @@ rpar train-seg --export-tflite --package models/roadseg-synth-0.1.0
 rpar field-video --out artifacts/field_video --max-frames 90
 rpar impact-align <session_dir>
 rpar alert-rate session_a session_b --out artifacts/alert_rate.json
+rpar fetch-bump-model
+rpar train-bump
 rpar map-label rdd2022 D40
 rpar train-synth
 rpar split session_a session_b session_c

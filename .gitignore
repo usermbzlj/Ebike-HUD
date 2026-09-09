@@ -42,6 +42,8 @@ Video/**/*.mkv
 models/**/*.onnx
 models/**/*.pt
 models/**/*.pth
+*.pt
+*.pth
 .cache/
 *.pyc
 .kotlin/

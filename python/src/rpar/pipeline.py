@@ -18,6 +18,8 @@ from rpar.enums import (
     RIDING_STATUS_COPY,
     UiMode,
     VisibilityClass,
+    bump_kind,
+    is_bump_hazard,
 )
 from rpar.geometry import GeometryEngine, should_mark_passed
 from rpar.impact import estimate_impact_score
@@ -445,12 +447,12 @@ class RealtimePipeline:
                 RenderPrimitive(
                     track_id=-6,
                     polygon=self.last_road_polygon,
-                    color_rgba=(0.12, 0.92, 0.38, 0.50 if ui_mode == UiMode.RIDING else 0.62),
+                    color_rgba=(0.12, 0.92, 0.38, 0.16 if ui_mode == UiMode.RIDING else 0.28),
                     dashed=False,
                     thickness=2.0,
                     label=None,
                     label_priority=85,
-                    fade=0.6,
+                    fade=0.32,
                     kind="road",
                 )
             )
@@ -592,6 +594,8 @@ class RealtimePipeline:
                 color = (0.35, 0.55, 0.88, fade)
             elif info:
                 color = (0.72, 0.66, 0.42, fade)
+            elif is_bump_hazard(obj.semantic_type, obj.geometry_type, obj.object_state):
+                color = (0.95, 0.28, 0.16, fade)
             elif obj.geometry_type.value == "concave":
                 color = (0.15, 0.82, 0.78, fade)
             elif obj.geometry_type.value == "rough":
@@ -612,7 +616,11 @@ class RealtimePipeline:
                         "RIGHT_FRONT": "右前方",
                         "ACROSS": "正前方",
                     }.get(obj.direction.value, "")
-                    label = f"{dir_cn} {dist_txt or ''}".strip()
+                    if is_bump_hazard(obj.semantic_type, obj.geometry_type, obj.object_state):
+                        kind = bump_kind(obj.semantic_type, obj.geometry_type, obj.object_state, obj.severity)
+                        label = f"{dir_cn}{kind}" + (f" · {dist_txt}" if dist_txt else "")
+                    else:
+                        label = f"{dir_cn} {dist_txt or ''}".strip()
                 else:
                     label = (
                         f"ID {obj.track_id} · {obj.semantic_type.value} · "

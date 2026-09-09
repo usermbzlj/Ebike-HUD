@@ -27,6 +27,7 @@ dependencies = [
 dev = ["pytest"]
 train = ["torch", "torchvision"]
 yolop = ["onnxruntime"]
+bump = ["ultralytics", "torch", "torchvision"]
 
 [project.scripts]
 rpar = "rpar.apps.cli:main"

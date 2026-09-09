@@ -18,6 +18,7 @@ class AlertPolicyTest {
     fun phraseHasNoSteerAdvice() {
         val p = composePhrase(Direction.LEFT_FRONT, SemanticType.POTHOLE)
         assertTrue(p.startsWith("左前方"))
+        assertTrue(p.contains("大坑"))
         assertFalse(p.contains("避让"))
         assertFalse(p.contains("转向"))
         assertFalse(p.contains("制动"))

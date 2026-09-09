@@ -24,6 +24,11 @@ def test_rome_manhole_is_not_pothole():
     assert m.geometry == GeometryType.FLAT
     assert m.state == ObjectState.NORMAL
     assert m.alert_eligible is False
+    sunk = map_public_label("rideset", "sunken manhole cover")
+    assert sunk.semantic == SemanticType.MANHOLE_COVER
+    assert sunk.geometry == GeometryType.CONCAVE
+    assert sunk.state == ObjectState.ABNORMAL
+    assert sunk.alert_eligible is True
 
 
 def test_patch_and_speed_bump():

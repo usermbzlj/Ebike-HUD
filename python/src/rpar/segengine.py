@@ -9,6 +9,7 @@ from typing import Any
 import cv2
 import numpy as np
 
+from rpar.enums import SemanticType
 from rpar.maskutil import bbox_iou
 from rpar.ml.seg_train import _xyrgb, predict_labels
 from rpar.models import FrameQualityMap, PerceptionResult, SynchronizedFrame
@@ -145,6 +146,59 @@ def merge_perception(
         input_sizes=list(dict.fromkeys(list(primary.input_sizes) + list(sidecar.input_sizes))),
         dual_scale=True,
     )
+
+
+_BUMP_TYPES = {SemanticType.POTHOLE, SemanticType.SPEED_BUMP, SemanticType.MANHOLE_COVER}
+
+
+def merge_bump_perception(primary: PerceptionResult, bump: PerceptionResult) -> PerceptionResult:
+    """When the bump net returns instances, they replace heuristic pothole/cover/hump boxes."""
+    if not bump.observations:
+        return primary
+    kept = [o for o in primary.observations if o.semantic_type not in _BUMP_TYPES]
+    extra = list(bump.observations)
+    if primary.occluded_polygons:
+        extra = gate_observations(extra, [], primary.occluded_polygons, None)
+    return PerceptionResult(
+        timestamp_ns=primary.timestamp_ns,
+        source_frame_id=primary.source_frame_id,
+        road_polygon=primary.road_polygon,
+        occluded_polygons=primary.occluded_polygons,
+        observations=kept + extra,
+        backend=primary.backend,
+        latency_ms=max(primary.latency_ms, bump.latency_ms),
+        input_sizes=list(dict.fromkeys(list(primary.input_sizes) + list(bump.input_sizes))),
+        dual_scale=primary.dual_scale,
+    )
+
+
+class BumpHybridEngine:
+    """Keep YOLOPv2/heuristic road; swap bump instances for the large-model sidecar."""
+
+    def __init__(self, primary: PerceptionEngine, bump: PerceptionEngine) -> None:
+        self.primary = primary
+        self.bump = bump
+        self.sidecar = getattr(primary, "sidecar", None)
+
+    def infer(self, frame: SynchronizedFrame, quality: FrameQualityMap | None = None) -> PerceptionResult:
+        h = self.primary.infer(frame, quality)
+        try:
+            b = self.bump.infer(frame, quality)
+        except Exception:
+            return h
+        return merge_bump_perception(h, b)
+
+    def capability(self) -> dict[str, Any]:
+        cap = dict(self.primary.capability()) if hasattr(self.primary, "capability") else {}
+        cap["hybrid"] = True
+        cap["bump"] = self.bump.capability() if hasattr(self.bump, "capability") else {"backend": "bump"}
+        if self.sidecar is not None and hasattr(self.sidecar, "capability"):
+            cap.setdefault("sidecar", self.sidecar.capability())
+        return cap
+
+    def close(self) -> None:
+        self.primary.close()
+        self.bump.close()
 
 
 class HybridPerceptionEngine:

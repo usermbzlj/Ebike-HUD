@@ -239,6 +239,10 @@ class TrackEngine:
             need += self.cfg.unknown_anomaly_extra_hits
         if tr.semantic == SemanticType.ROUGH_BROKEN:
             need += 3
+        if tr.semantic in {SemanticType.POTHOLE, SemanticType.SPEED_BUMP} or (
+            tr.semantic == SemanticType.MANHOLE_COVER and tr.geometry == GeometryType.CONCAVE
+        ):
+            need = min(need, max(2, int(self.cfg.bump_confirm_hits)))
         if tr.state == LifecycleState.CANDIDATE:
             if not observed:
                 if (now_ns - tr.last_ns) / 1e9 > self.cfg.candidate_max_age_s:

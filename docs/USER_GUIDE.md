@@ -73,7 +73,24 @@ rpar serve
 rpar field-video --out artifacts/field_video
 ```
 
-控制台「YOLOPv2 实拍」会编目并用启发式 + YOLOPv2（若本地有 ONNX）跑 AR。mp4 本身不进 Git；`Video/catalog.json` 记录时长、分辨率和白天/夜间猜测。`m2_report.json` 是无 GT 的软件门（夜间不得确认沥青噪声）。这不是坑洞检测，也不能当作首次确认距离的场测证据。
+控制台「YOLOPv2 实拍」会编目并用启发式 + YOLOPv2（若本地有 ONNX）+ **YOLO-World 颠簸检测**（若 `models/yolo-world/` 或微调权重存在）跑 AR。mp4 本身不进 Git。YOLOPv2 只负责可行驶区域和车辆，不是坑/井盖/减速带网。
+
+## 用手机拍训练视频（大坑 / 下沉井盖 / 减速带）
+
+识别这三类必须靠你的实拍，而不是公开病害表。把视频拷到：
+
+`Video/train/inbox/`
+
+怎么拍：Find X8 Pro 横屏后置 1×，尽量左侧车把；每个目标从约 15–20 m 骑向它；白天和有路灯夜间都要；减速带包含黄白漆和橡胶坎。文件名建议 `pothole_day_01.mp4`、`speedbump_night_01.mp4`、`manhole_sunken_day_01.mp4`（也可直接用中文：`大坑_白天_01.mp4`）。详见该目录里的 `PUT_VIDEOS_HERE.txt`。
+
+拷完后告诉我，或本机运行：
+
+```text
+rpar fetch-bump-model
+rpar train-bump
+```
+
+教师是本地 YOLO-World 开集检测器（提示词只有坑、减速带、下沉井盖）。样本够了才会微调。这不是 PKC110 Camera2 几何真值，手机端在导出量化学生网之前仍走启发式。
 
 会话上的未来冲击对齐（不进提醒）：
 

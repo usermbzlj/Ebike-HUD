@@ -29,6 +29,7 @@ data class TrackingConfig(
     val processNoise: Double = 18.0,
     val measNoise: Double = 6.0,
     val unknownAnomalyExtraHits: Int = 2,
+    val bumpConfirmHits: Int = 2,
 )
 
 data class GeometryConfig(
@@ -55,6 +56,7 @@ data class AlertConfig(
     val minEffective: Double = 0.48,
     val realertSeverityJump: Int = 1,
     val pauseOnDegraded: Boolean = true,
+    val bumpScoreThreshold: Double = 0.20,
 )
 
 data class RenderConfig(
@@ -139,7 +141,8 @@ data class RparConfig(
             .put("center_match_px", tracking.centerMatchPx)
             .put("process_noise", tracking.processNoise)
             .put("meas_noise", tracking.measNoise)
-            .put("unknown_anomaly_extra_hits", tracking.unknownAnomalyExtraHits))
+            .put("unknown_anomaly_extra_hits", tracking.unknownAnomalyExtraHits)
+            .put("bump_confirm_hits", tracking.bumpConfirmHits))
         .put("geometry", JSONObject()
             .put("corridor_half_width_m", geometry.corridorHalfWidthM)
             .put("across_min_width_m", geometry.acrossMinWidthM)
@@ -159,7 +162,8 @@ data class RparConfig(
             .put("min_visibility", alert.minVisibility)
             .put("min_effective", alert.minEffective)
             .put("realert_severity_jump", alert.realertSeverityJump)
-            .put("pause_on_degraded", alert.pauseOnDegraded))
+            .put("pause_on_degraded", alert.pauseOnDegraded)
+            .put("bump_score_threshold", alert.bumpScoreThreshold))
         .put("render", JSONObject()
             .put("riding_max_labels", render.ridingMaxLabels)
             .put("ar_target_fps", render.arTargetFps)
@@ -239,6 +243,7 @@ data class RparConfig(
                     processNoise = t.optDouble("process_noise", 18.0),
                     measNoise = t.optDouble("meas_noise", 6.0),
                     unknownAnomalyExtraHits = t.optInt("unknown_anomaly_extra_hits", 2),
+                    bumpConfirmHits = t.optInt("bump_confirm_hits", 2),
                 ),
                 geometry = GeometryConfig(
                     corridorHalfWidthM = g.optDouble("corridor_half_width_m", 0.85),
@@ -261,6 +266,7 @@ data class RparConfig(
                     minEffective = a.optDouble("min_effective", 0.48),
                     realertSeverityJump = a.optInt("realert_severity_jump", 1),
                     pauseOnDegraded = a.optBoolean("pause_on_degraded", true),
+                    bumpScoreThreshold = a.optDouble("bump_score_threshold", 0.20),
                 ),
                 render = RenderConfig(
                     ridingMaxLabels = r.optInt("riding_max_labels", 5),

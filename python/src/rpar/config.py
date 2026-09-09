@@ -39,6 +39,7 @@ class TrackingConfig:
     process_noise: float = 18.0
     meas_noise: float = 6.0
     unknown_anomaly_extra_hits: int = 2
+    bump_confirm_hits: int = 2
 
 
 @dataclass
@@ -67,6 +68,7 @@ class AlertConfig:
     min_effective: float = 0.48
     realert_severity_jump: int = 1
     pause_on_degraded: bool = True
+    bump_score_threshold: float = 0.20
 
 
 @dataclass

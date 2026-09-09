@@ -148,7 +148,7 @@ object EnumCopy {
         Direction.UNKNOWN to "前方",
     )
     val SEMANTIC_TTS = mapOf(
-        SemanticType.POTHOLE to "坑洼",
+        SemanticType.POTHOLE to "大坑",
         SemanticType.MANHOLE_COVER to "井盖",
         SemanticType.SPEED_BUMP to "减速带",
         SemanticType.ROAD_JOINT to "接缝",
@@ -169,4 +169,18 @@ object EnumCopy {
         PerceptionStatus.SAFE_MODE to "安全模式：仅采集",
         PerceptionStatus.PERCEPTION_LIMITED to "感知受限",
     )
+
+    fun isBumpHazard(semantic: SemanticType, geometry: GeometryType, state: ObjectState): Boolean {
+        if (semantic == SemanticType.POTHOLE && geometry == GeometryType.CONCAVE && state != ObjectState.NORMAL) return true
+        if (semantic == SemanticType.SPEED_BUMP && state != ObjectState.NORMAL) return true
+        if (semantic == SemanticType.MANHOLE_COVER && geometry == GeometryType.CONCAVE && state == ObjectState.ABNORMAL) return true
+        return false
+    }
+
+    fun bumpKind(semantic: SemanticType, geometry: GeometryType, state: ObjectState): String {
+        if (semantic == SemanticType.POTHOLE) return "大坑"
+        if (semantic == SemanticType.SPEED_BUMP) return "减速带"
+        if (semantic == SemanticType.MANHOLE_COVER && geometry == GeometryType.CONCAVE && state == ObjectState.ABNORMAL) return "下沉井盖"
+        return SEMANTIC_TTS[semantic] ?: "路面异常"
+    }
 }

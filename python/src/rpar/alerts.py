@@ -18,6 +18,8 @@ from rpar.enums import (
     PerceptionStatus,
     SemanticType,
     Severity,
+    bump_kind,
+    is_bump_hazard,
 )
 from rpar.models import AlertDecision, TrackedRoadObject
 
@@ -56,9 +58,22 @@ def severity_score(sev: Severity, geometry: GeometryType, state: ObjectState) ->
     return table.get(sev, 0.22)
 
 
-def compose_phrase(direction: Direction, semantic: SemanticType, generic: bool = False) -> str:
+def compose_phrase(
+    direction: Direction,
+    semantic: SemanticType,
+    generic: bool = False,
+    *,
+    geometry: GeometryType | None = None,
+    state: ObjectState | None = None,
+    severity: Severity | None = None,
+) -> str:
     heading = DIRECTION_TTS.get(direction, "前方")
-    kind = "路面异常" if generic else SEMANTIC_TTS.get(semantic, "路面异常")
+    if generic:
+        kind = "路面异常"
+    elif is_bump_hazard(semantic, geometry, state):
+        kind = bump_kind(semantic, geometry, state, severity)
+    else:
+        kind = SEMANTIC_TTS.get(semantic, "路面异常")
     phrase = f"{heading}{kind}"
     for bad in ALERT_FORBIDDEN_PHRASES:
         if bad in phrase:
@@ -103,6 +118,7 @@ class AlertPolicy:
             "geometry_type": obj.geometry_type.value,
             "semantic_type": obj.semantic_type.value,
             "threshold": self.cfg.score_threshold,
+            "bump_threshold": self.cfg.bump_score_threshold,
             "status": status.value,
         }
 
@@ -144,7 +160,9 @@ class AlertPolicy:
             return reject("severity_too_low")
         if obj.visibility_confidence < self.cfg.min_visibility:
             return reject("visibility_gate")
-        if obj.effective_confidence < self.cfg.min_effective:
+        if obj.effective_confidence < self.cfg.min_effective and not (
+            is_bump_hazard(obj.semantic_type, obj.geometry_type, obj.object_state) and obj.model_confidence >= 0.18
+        ):
             return reject("effective_gate")
         if obj.path_relevance < self.cfg.min_path_relevance:
             return reject("off_corridor")
@@ -159,16 +177,24 @@ class AlertPolicy:
         )
         sev = severity_score(obj.severity, obj.geometry_type, obj.object_state)
         urg = urgency_from_ttc(obj.ttc_s)
+        bump = is_bump_hazard(obj.semantic_type, obj.geometry_type, obj.object_state)
+        if bump:
+            urg = max(urg, 0.65)
         suppression = 1.0
         if obj.semantic_type == SemanticType.UNKNOWN_ANOMALY:
             suppression *= 0.55
         score = vs * sev * obj.path_relevance * urg * suppression
+        if bump:
+            score = max(score, float(obj.model_confidence) * obj.path_relevance * urg * 0.90)
+        threshold = self.cfg.bump_score_threshold if bump else self.cfg.score_threshold
         snapshot["visual_score"] = vs
         snapshot["severity_score"] = sev
         snapshot["urgency"] = urg
         snapshot["alert_score"] = score
+        snapshot["threshold"] = threshold
+        snapshot["bump_hazard"] = bump
 
-        if score < self.cfg.score_threshold:
+        if score < threshold:
             return reject("below_threshold", score)
 
         prev = self.alerted_tracks.get(obj.track_id)
@@ -187,7 +213,14 @@ class AlertPolicy:
             return reject("class_cooldown", score)
 
         generic = obj.severity == Severity.UNKNOWN
-        phrase = compose_phrase(obj.direction, obj.semantic_type, generic=generic)
+        phrase = compose_phrase(
+            obj.direction,
+            obj.semantic_type,
+            generic=generic,
+            geometry=obj.geometry_type,
+            state=obj.object_state,
+            severity=obj.severity,
+        )
         self.last_global_ns = now_ns
         self.last_class_ns[cls_key] = now_ns
         self.alerted_tracks[obj.track_id] = now_ns
@@ -201,7 +234,7 @@ class AlertPolicy:
             direction=obj.direction,
             semantic_type=obj.semantic_type,
             alert_score=score,
-            threshold=self.cfg.score_threshold,
+            threshold=threshold,
             reasons=reasons,
             snapshot=snapshot,
         )

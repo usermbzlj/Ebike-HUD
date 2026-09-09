@@ -129,6 +129,7 @@ class PrivacyMode(StrEnum):
 
 
 INFO_LAYER_SEMANTICS = {SemanticType.PUDDLE, SemanticType.GRAVEL}
+BUMP_SEMANTICS = {SemanticType.POTHOLE, SemanticType.SPEED_BUMP, SemanticType.MANHOLE_COVER}
 LOW_RISK_WHEN_NORMAL = {
     SemanticType.MANHOLE_COVER,
     SemanticType.REPAIR_PATCH,
@@ -156,7 +157,7 @@ DIRECTION_TTS = {
 }
 
 SEMANTIC_TTS = {
-    SemanticType.POTHOLE: "坑洼",
+    SemanticType.POTHOLE: "大坑",
     SemanticType.MANHOLE_COVER: "井盖",
     SemanticType.SPEED_BUMP: "减速带",
     SemanticType.ROAD_JOINT: "接缝",
@@ -178,3 +179,32 @@ RIDING_STATUS_COPY = {
     PerceptionStatus.SAFE_MODE: "安全模式：仅采集",
     PerceptionStatus.PERCEPTION_LIMITED: "感知受限",
 }
+
+
+def is_bump_hazard(
+    semantic: SemanticType,
+    geometry: GeometryType | None = None,
+    state: ObjectState | None = None,
+) -> bool:
+    if semantic == SemanticType.POTHOLE and (geometry in {None, GeometryType.CONCAVE}) and state != ObjectState.NORMAL:
+        return True
+    if semantic == SemanticType.SPEED_BUMP and state != ObjectState.NORMAL:
+        return True
+    if semantic == SemanticType.MANHOLE_COVER and geometry == GeometryType.CONCAVE and state == ObjectState.ABNORMAL:
+        return True
+    return False
+
+
+def bump_kind(
+    semantic: SemanticType,
+    geometry: GeometryType | None = None,
+    state: ObjectState | None = None,
+    severity: Severity | None = None,
+) -> str:
+    if semantic == SemanticType.POTHOLE:
+        return "大坑"
+    if semantic == SemanticType.SPEED_BUMP:
+        return "减速带"
+    if semantic == SemanticType.MANHOLE_COVER and geometry == GeometryType.CONCAVE and state == ObjectState.ABNORMAL:
+        return "下沉井盖"
+    return SEMANTIC_TTS.get(semantic, "路面异常")

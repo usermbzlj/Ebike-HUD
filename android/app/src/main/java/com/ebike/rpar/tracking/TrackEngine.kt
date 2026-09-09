@@ -254,6 +254,11 @@ class TrackEngine(private val cfg: TrackingConfig) {
         var need = cfg.minConfirmHits
         if (tr.semantic == SemanticType.UNKNOWN_ANOMALY) need += cfg.unknownAnomalyExtraHits
         if (tr.semantic == SemanticType.ROUGH_BROKEN) need += 3
+        if (tr.semantic == SemanticType.POTHOLE || tr.semantic == SemanticType.SPEED_BUMP ||
+            (tr.semantic == SemanticType.MANHOLE_COVER && tr.geometry == GeometryType.CONCAVE)
+        ) {
+            need = minOf(need, maxOf(2, cfg.bumpConfirmHits))
+        }
         if (tr.state == LifecycleState.CANDIDATE) {
             if (!observed) {
                 if ((nowNs - tr.lastNs) / 1e9 > cfg.candidateMaxAgeS) {

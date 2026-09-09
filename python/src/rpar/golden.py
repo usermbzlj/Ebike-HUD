@@ -279,6 +279,7 @@ def run_video_file(
     *,
     engine=None,
     prefer_yolop: bool = False,
+    prefer_bump: bool = False,
     still_ratios: tuple[float, ...] = (0.25, 0.45, 0.65),
     ui_mode: UiMode = UiMode.RIDING,
 ) -> dict[str, Any]:
@@ -292,12 +293,15 @@ def run_video_file(
     mount = default_mount(w, h)
     k = default_intrinsics(w, h)
     own_engine = engine is None
-    eng = engine if engine is not None else load_field_engine(cfg, prefer_yolop=prefer_yolop)
+    eng = engine if engine is not None else load_field_engine(cfg, prefer_yolop=prefer_yolop, prefer_bump=prefer_bump)
     cap_info0 = eng.capability() if hasattr(eng, "capability") else {}
     sidecar0 = cap_info0.get("sidecar") if isinstance(cap_info0.get("sidecar"), dict) else {}
+    bump0 = cap_info0.get("bump") if isinstance(cap_info0.get("bump"), dict) else {}
     version = cfg.model.package_id
     if cap_info0.get("hybrid"):
         version = f"{version}+{sidecar0.get('backend', 'sidecar')}"
+    if bump0.get("backend"):
+        version = f"{version}+{bump0.get('backend')}"
     pipe = RealtimePipeline(cfg, eng, GeometryEngine(mount, cfg.geometry, k), model_version=version)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

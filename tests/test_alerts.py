@@ -45,8 +45,19 @@ def _obj(**kw) -> TrackedRoadObject:
 def test_phrase_has_no_steering_advice():
     phrase = compose_phrase(Direction.LEFT_FRONT, SemanticType.POTHOLE)
     assert phrase.startswith("左前方")
+    assert "大坑" in phrase
     for bad in ALERT_FORBIDDEN_PHRASES:
         assert bad not in phrase
+
+
+def test_sunken_manhole_phrase():
+    phrase = compose_phrase(
+        Direction.CENTER_FRONT,
+        SemanticType.MANHOLE_COVER,
+        geometry=GeometryType.CONCAVE,
+        state=ObjectState.ABNORMAL,
+    )
+    assert phrase == "正前方下沉井盖"
 
 
 def test_normal_manhole_does_not_alert():

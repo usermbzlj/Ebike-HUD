@@ -23,6 +23,7 @@ tracking:
   process_noise: 18.0
   meas_noise: 6.0
   unknown_anomaly_extra_hits: 2
+  bump_confirm_hits: 2
 geometry:
   corridor_half_width_m: 0.85
   across_min_width_m: 1.6
@@ -43,6 +44,7 @@ alert:
   min_effective: 0.48
   realert_severity_jump: 1
   pause_on_degraded: true
+  bump_score_threshold: 0.20
 render:
   riding_max_labels: 5
   ar_target_fps: 60

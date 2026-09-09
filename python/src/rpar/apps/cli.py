@@ -43,6 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--out", default="artifacts/video_run")
     v.add_argument("--max-frames", type=int, default=300)
     v.add_argument("--no-yolop", action="store_true")
+    v.add_argument("--no-bump", action="store_true")
 
     fv = sub.add_parser("field-video", help="catalog + run every mp4 in Video/")
     fv.add_argument("--video-dir", default="")
@@ -50,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     fv.add_argument("--max-frames", type=int, default=180, help="0 = entire clip")
     fv.add_argument("--catalog-only", action="store_true")
     fv.add_argument("--no-yolop", action="store_true", help="skip YOLOPv2 even if models/yolopv2/YOLOPv2.onnx exists")
+    fv.add_argument("--no-bump", action="store_true", help="skip YOLO-World bump net even if local weights exist")
     fv.add_argument("--research", action="store_true", help="research HUD overlay (more labels)")
 
     sim = sub.add_parser("simulate", help="write a raw synthetic preview mp4")
@@ -139,6 +141,26 @@ def main(argv: list[str] | None = None) -> int:
     df.add_argument("--frames-per-clip", type=int, default=12)
     df.add_argument("--package-only", action="store_true", help="write manifest around existing seg_weights.json")
 
+    tb = sub.add_parser("ingest-train", help="copy-ready: extract frames from Video/train/inbox phone clips")
+    tb.add_argument("--inbox", default="")
+    tb.add_argument("--out", default="artifacts/bump_dataset")
+    tb.add_argument("--fps", type=float, default=2.0)
+
+    pb = sub.add_parser("propose-bump", help="YOLO-World teacher boxes → YOLO labels (needs local weights)")
+    pb.add_argument("--dataset", default="artifacts/bump_dataset")
+
+    fb = sub.add_parser("fetch-bump-model", help="download YOLO-World-M teacher into models/yolo-world/")
+    fb.add_argument("--out", default="")
+
+    trb = sub.add_parser("train-bump", help="ingest inbox clips + YOLO-World teacher + fine-tune bump net")
+    trb.add_argument("--inbox", default="")
+    trb.add_argument("--dataset", default="artifacts/bump_dataset")
+    trb.add_argument("--out", default="artifacts/bump_train")
+    trb.add_argument("--epochs", type=int, default=60)
+    trb.add_argument("--fps", type=float, default=2.0)
+    trb.add_argument("--min-images", type=int, default=16)
+    trb.add_argument("--skip-download", action="store_true")
+
     ml = sub.add_parser("map-label", help="map a public dataset class onto RPAR semantic/geometry/state")
     ml.add_argument("source")
     ml.add_argument("raw")
@@ -165,7 +187,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(metrics, indent=2))
         return 0
     if args.cmd == "video":
-        print(json.dumps(run_video_file(Path(args.path), Path(args.out), max_frames=args.max_frames, prefer_yolop=not args.no_yolop), indent=2))
+        print(json.dumps(run_video_file(Path(args.path), Path(args.out), max_frames=args.max_frames, prefer_yolop=not args.no_yolop, prefer_bump=not args.no_bump), indent=2))
         return 0
     if args.cmd == "field-video":
         from rpar.enums import UiMode
@@ -176,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(write_catalog(vdir), indent=2, ensure_ascii=False))
             return 0
         ui = UiMode.RESEARCH if args.research else UiMode.RIDING
-        print(json.dumps(run_field_videos(vdir, Path(args.out), max_frames=args.max_frames, prefer_yolop=not args.no_yolop, ui_mode=ui), indent=2, ensure_ascii=False)[:8000])
+        print(json.dumps(run_field_videos(vdir, Path(args.out), max_frames=args.max_frames, prefer_yolop=not args.no_yolop, prefer_bump=not args.no_bump, ui_mode=ui), indent=2, ensure_ascii=False)[:8000])
         return 0
     if args.cmd == "simulate":
         simu = RoadSimulator(SimConfig(night=args.night, duration_s=3.0))
@@ -267,6 +289,29 @@ def main(argv: list[str] | None = None) -> int:
 
         clips = [Path(c["path"]) for c in list_clips(repo_video_dir()) if c.get("ok")]
         print(json.dumps(distill_from_videos(clips, Path(args.out), frames_per_clip=args.frames_per_clip), indent=2))
+        return 0
+    if args.cmd == "ingest-train":
+        from rpar.ml.bump_dataset import ingest_inbox
+
+        inbox = Path(args.inbox) if args.inbox else None
+        print(json.dumps(ingest_inbox(inbox, Path(args.out), sample_fps=args.fps), indent=2, ensure_ascii=False)[:8000])
+        return 0
+    if args.cmd == "propose-bump":
+        from rpar.ml.bump_dataset import propose_labels
+
+        print(json.dumps(propose_labels(Path(args.dataset)), indent=2, ensure_ascii=False)[:8000])
+        return 0
+    if args.cmd == "fetch-bump-model":
+        from rpar.ml.bump_train import ensure_teacher_weights
+
+        dest = Path(args.out) if args.out else None
+        print(json.dumps(ensure_teacher_weights(dest), indent=2, ensure_ascii=False))
+        return 0
+    if args.cmd == "train-bump":
+        from rpar.ml.bump_train import run_bump_train
+
+        inbox = Path(args.inbox) if args.inbox else None
+        print(json.dumps(run_bump_train(inbox, Path(args.dataset), Path(args.out), sample_fps=args.fps, epochs=args.epochs, min_images=args.min_images, skip_download=args.skip_download), indent=2, ensure_ascii=False)[:8000])
         return 0
     if args.cmd == "map-label":
         from rpar.ml.labelmap import map_record

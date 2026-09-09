@@ -352,9 +352,10 @@ def run_field_videos(
     max_frames: int = 180,
     *,
     prefer_yolop: bool = False,
+    prefer_bump: bool = False,
     ui_mode: UiMode | None = None,
 ) -> dict[str, Any]:
-    """Run the field pipeline on every local clip. YOLOPv2 is opt-in so pytest stays fast."""
+    """Run the field pipeline on every local clip. YOLOPv2 / bump net are opt-in so pytest stays fast."""
     cfg = cfg or load_config()
     mode = ui_mode or UiMode.RIDING
     d = Path(video_dir) if video_dir else repo_video_dir()
@@ -362,7 +363,7 @@ def run_field_videos(
     out_dir.mkdir(parents=True, exist_ok=True)
     catalog = write_catalog(d)
     live = {c["name"]: c for c in list_clips(d)}
-    engine = load_field_engine(cfg, prefer_yolop=prefer_yolop)
+    engine = load_field_engine(cfg, prefer_yolop=prefer_yolop, prefer_bump=prefer_bump)
     results: list[dict[str, Any]] = []
     hybrid = False
     try:
@@ -394,6 +395,7 @@ def run_field_videos(
         "catalog": catalog,
         "max_frames": max_frames,
         "prefer_yolop": prefer_yolop,
+        "prefer_bump": prefer_bump,
         "ui_mode": mode.value,
         "hybrid": hybrid,
         "results": results,

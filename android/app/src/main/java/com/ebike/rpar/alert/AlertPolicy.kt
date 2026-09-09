@@ -35,9 +35,19 @@ fun severityScore(sev: Severity, geometry: GeometryType, state: ObjectState): Do
     }
 }
 
-fun composePhrase(direction: Direction, semantic: SemanticType, generic: Boolean = false): String {
+fun composePhrase(
+    direction: Direction,
+    semantic: SemanticType,
+    generic: Boolean = false,
+    geometry: GeometryType = GeometryType.UNKNOWN,
+    state: ObjectState = ObjectState.UNKNOWN,
+): String {
     val heading = EnumCopy.DIRECTION_TTS[direction] ?: "前方"
-    val kind = if (generic) "路面异常" else (EnumCopy.SEMANTIC_TTS[semantic] ?: "路面异常")
+    val kind = when {
+        generic -> "路面异常"
+        EnumCopy.isBumpHazard(semantic, geometry, state) -> EnumCopy.bumpKind(semantic, geometry, state)
+        else -> EnumCopy.SEMANTIC_TTS[semantic] ?: "路面异常"
+    }
     val phrase = heading + kind
     EnumCopy.ALERT_FORBIDDEN.forEach { bad ->
         require(!phrase.contains(bad)) { "forbidden advisory text: $bad" }
@@ -74,6 +84,7 @@ class AlertPolicy(val cfg: AlertConfig, var enabled: Boolean = true) {
         snapshot.put("geometry_type", obj.geometryType.wire)
         snapshot.put("semantic_type", obj.semanticType.wire)
         snapshot.put("threshold", cfg.scoreThreshold)
+        snapshot.put("bump_threshold", cfg.bumpScoreThreshold)
         snapshot.put("status", status.wire)
 
         fun reject(reason: String, score: Double = 0.0): AlertDecision {
@@ -99,21 +110,31 @@ class AlertPolicy(val cfg: AlertConfig, var enabled: Boolean = true) {
             return reject("severity_too_low")
         }
         if (obj.visibilityConfidence < cfg.minVisibility) return reject("visibility_gate")
-        if (obj.effectiveConfidence < cfg.minEffective) return reject("effective_gate")
+        if (obj.effectiveConfidence < cfg.minEffective) {
+            val bumpEarly = EnumCopy.isBumpHazard(obj.semanticType, obj.geometryType, obj.objectState) &&
+                obj.modelConfidence >= 0.18
+            if (!bumpEarly) return reject("effective_gate")
+        }
         if (obj.pathRelevance < cfg.minPathRelevance) return reject("off_corridor")
         if (obj.direction == Direction.UNKNOWN) return reject("direction_unknown")
 
         val vs = visualScore(obj.modelConfidence, obj.visibilityConfidence, obj.temporalConfidence, obj.geometryConsistency)
         val sev = severityScore(obj.severity, obj.geometryType, obj.objectState)
-        val urg = urgencyFromTtc(obj.ttcS)
+        var urg = urgencyFromTtc(obj.ttcS)
+        val bump = EnumCopy.isBumpHazard(obj.semanticType, obj.geometryType, obj.objectState)
+        if (bump) urg = maxOf(urg, 0.65)
         var suppression = 1.0
         if (obj.semanticType == SemanticType.UNKNOWN_ANOMALY) suppression *= 0.55
-        val score = vs * sev * obj.pathRelevance * urg * suppression
+        var score = vs * sev * obj.pathRelevance * urg * suppression
+        if (bump) score = maxOf(score, obj.modelConfidence * obj.pathRelevance * urg * 0.90)
+        val threshold = if (bump) cfg.bumpScoreThreshold else cfg.scoreThreshold
         snapshot.put("visual_score", vs)
         snapshot.put("severity_score", sev)
         snapshot.put("urgency", urg)
         snapshot.put("alert_score", score)
-        if (score < cfg.scoreThreshold) return reject("below_threshold", score)
+        snapshot.put("threshold", threshold)
+        snapshot.put("bump_hazard", bump)
+        if (score < threshold) return reject("below_threshold", score)
 
         val prev = alertedTracks[obj.trackId]
         if (prev != null) {
@@ -127,12 +148,18 @@ class AlertPolicy(val cfg: AlertConfig, var enabled: Boolean = true) {
         val lastC = lastClassNs[cls] ?: 0L
         if (lastC != 0L && nowNs - lastC < (cfg.classCooldownS * 1e9).toLong()) return reject("class_cooldown", score)
 
-        val phrase = composePhrase(obj.direction, obj.semanticType, generic = obj.severity == Severity.UNKNOWN)
+        val phrase = composePhrase(
+            obj.direction,
+            obj.semanticType,
+            generic = obj.severity == Severity.UNKNOWN,
+            geometry = obj.geometryType,
+            state = obj.objectState,
+        )
         lastGlobalNs = nowNs
         lastClassNs[cls] = nowNs
         alertedTracks[obj.trackId] = nowNs
         lastSeverity[obj.trackId] = if (obj.severity.code >= 0) obj.severity.code else 0
         reasons += "fired"
-        return AlertDecision(nowNs, obj.trackId, true, phrase, obj.direction, obj.semanticType, score, cfg.scoreThreshold, reasons, snapshot)
+        return AlertDecision(nowNs, obj.trackId, true, phrase, obj.direction, obj.semanticType, score, threshold, reasons, snapshot)
     }
 }

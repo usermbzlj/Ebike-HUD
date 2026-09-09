@@ -760,26 +760,35 @@ def load_field_engine(
     cfg: RparConfig,
     *,
     prefer_yolop: bool = True,
+    prefer_bump: bool = False,
     weights: Path | None = None,
 ) -> PerceptionEngine:
-    """Heuristic + YOLOPv2 sidecar when local ONNX weights exist (desktop field demo)."""
+    """Heuristic + optional YOLOPv2 road sidecar + optional YOLO-World bump net."""
     heuristic = HeuristicPerceptionEngine(cfg)
-    if not prefer_yolop:
-        return heuristic
-    from rpar.ml.yolopv2 import Yolopv2Engine, weights_available
-    from rpar.segengine import DualScaleSegEngine, HybridPerceptionEngine
+    engine: PerceptionEngine = heuristic
+    if prefer_yolop:
+        from rpar.ml.yolopv2 import Yolopv2Engine, weights_available
+        from rpar.segengine import DualScaleSegEngine, HybridPerceptionEngine
 
-    path = Path(weights) if weights else None
-    if weights_available(path):
-        return HybridPerceptionEngine(heuristic, Yolopv2Engine(path))
-    for parent in [Path(__file__).resolve(), *Path(__file__).resolve().parents]:
-        cand = parent / "models" / "roadseg-field-0.1.0" / "seg_weights.json"
-        if cand.is_file():
-            import json
+        path = Path(weights) if weights else None
+        if weights_available(path):
+            engine = HybridPerceptionEngine(heuristic, Yolopv2Engine(path))
+        else:
+            for parent in [Path(__file__).resolve(), *Path(__file__).resolve().parents]:
+                cand = parent / "models" / "roadseg-field-0.1.0" / "seg_weights.json"
+                if cand.is_file():
+                    import json
 
-            meta = json.loads(cand.read_text(encoding="utf-8"))
-            w = meta.get("weights")
-            if w:
-                return HybridPerceptionEngine(heuristic, DualScaleSegEngine(np.asarray(w)))
-            break
-    return heuristic
+                    meta = json.loads(cand.read_text(encoding="utf-8"))
+                    w = meta.get("weights")
+                    if w:
+                        engine = HybridPerceptionEngine(heuristic, DualScaleSegEngine(np.asarray(w)))
+                    break
+    if prefer_bump:
+        from rpar.ml.world_bump import try_load_world_bump
+        from rpar.segengine import BumpHybridEngine
+
+        bump = try_load_world_bump()
+        if bump is not None:
+            engine = BumpHybridEngine(engine, bump)
+    return engine
