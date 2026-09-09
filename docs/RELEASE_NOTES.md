@@ -40,6 +40,7 @@ Debug 构建使用 Android 默认 debug 密钥，仅供开发安装。场测 APK
 - 音调模式用立体声像+节奏区分左/正/右，播报前请求瞬时音频焦点
 - `rpar alert-rate` 汇总会话语音提醒率，未满 10 h 不得宣称 M4 通过
 - 可行驶绿填在颠簸轮廓处挖空，避免绿罩看起来像“路面安全”；骑行绿透明度再降
+- `rpar export-bump-tflite` 在 Windows 上导出 ONNX（Ultralytics LiteRT 仅 Linux/macOS）；手机 HybridEngine 在图加载成功时替换启发式坑/带/盖；Camera2 分析流补 UV 供 RGB letterbox
 - 骑行标签带类型（`正前方大坑 · 12m`）；颠簸三类单独提醒阈值；正常井盖仍不播报
 - M2 夜间门改为禁止固体病害确认；积水/碎石信息层允许出现且不得播报
 - `rpar field-video` 编目并跑 `Video/` 实拍片段（规格 25007/25013 按时长对齐）；mp4 不入库

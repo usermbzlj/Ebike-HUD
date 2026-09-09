@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "package_id": "bump-world-0.1.0",
+  "engine": "yolo-bump",
+  "role": "bump_sidecar",
+  "files": {
+    "model.onnx": "model.onnx",
+    "labels.json": "labels.json"
+  },
+  "input_spec": {
+    "detect": {
+      "width": 320,
+      "height": 320,
+      "layout": "NCHW",
+      "norm": "0-1"
+    },
+    "note": "Letterboxed RGB detect. YOLOPv2 / heuristic still own drivable area. Ultralytics LiteRT export is Linux/macOS only; this host packages ONNX for the phone."
+  },
+  "quantization": "fp32",
+  "compatible_app": ">=0.1.0",
+  "labels": {
+    "semantic_type": [
+      "pothole",
+      "speed_bump",
+      "manhole_cover"
+    ]
+  },
+  "sha256": {}
+}

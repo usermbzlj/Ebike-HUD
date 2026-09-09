@@ -22,6 +22,7 @@
 - 场测 overlay 记录预测首次确认距离（非几何 GT）
 - M2 夜间允许信息层积水确认，也允许 YOLO-World 大坑/下沉井盖/减速带确认与播报；固体启发式病害/`rough_broken` 仍须为 0
 - 颠簸开集提示词映射到规格枚举；inbox 按整段视频切分；YOLO-World 缺权重时不得在 pytest 里加载
+- LiteRT YOLO 检测图解码（NMS 6 列 / 原始 4+nc 通道）与手机 HybridEngine 替换启发式坑/带/盖
 - 大坑 / 下沉井盖默认可播报；平整井盖仍不播报
 
 黄金回归命令：

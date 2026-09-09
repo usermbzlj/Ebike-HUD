@@ -417,11 +417,30 @@ data class YuvImageBuffer(
     val y: ByteArray,
     val yRowStride: Int,
     val uv: ByteArray? = null,
+    val u: ByteArray? = null,
+    val v: ByteArray? = null,
+    val uRowStride: Int = 0,
+    val vRowStride: Int = 0,
+    val uPixelStride: Int = 1,
+    val vPixelStride: Int = 1,
 ) {
     fun grayAt(x: Int, yPos: Int): Int {
         val xx = x.coerceIn(0, width - 1)
         val yy = yPos.coerceIn(0, height - 1)
         return y[yy * yRowStride + xx].toInt() and 0xFF
+    }
+
+    fun chromaU(x: Int, yPos: Int): Int = chromaAt(u, uRowStride, uPixelStride, x, yPos)
+
+    fun chromaV(x: Int, yPos: Int): Int = chromaAt(v, vRowStride, vPixelStride, x, yPos)
+
+    private fun chromaAt(plane: ByteArray?, rowStride: Int, pixelStride: Int, x: Int, yPos: Int): Int {
+        if (plane == null || plane.isEmpty() || rowStride <= 0) return 128
+        val cx = (x / 2).coerceAtLeast(0)
+        val cy = (yPos / 2).coerceAtLeast(0)
+        val idx = cy * rowStride + cx * pixelStride.coerceAtLeast(1)
+        if (idx < 0 || idx >= plane.size) return 128
+        return plane[idx].toInt() and 0xFF
     }
 }
 

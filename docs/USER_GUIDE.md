@@ -90,7 +90,15 @@ rpar fetch-bump-model
 rpar train-bump
 ```
 
-教师是本地 YOLO-World 开集检测器（提示词只有坑、减速带、下沉井盖）。样本够了才会微调。这不是 PKC110 Camera2 几何真值，手机端在导出量化学生网之前仍走启发式。
+教师是本地 YOLO-World 开集检测器（提示词只有坑、减速带、下沉井盖）。样本够了才会微调。这不是 PKC110 Camera2 几何真值。
+
+把同一套检测图导出到手机（LiteRT sidecar，默认 320 letterbox）：
+
+```text
+rpar export-bump-tflite
+```
+
+生成的 `models/bump-world-0.1.0/model.onnx`（本机 Windows 上 Ultralytics 不能导出 LiteRT，改导出 ONNX）或 Linux 上的 `model.tflite` 不入库。本机再 `assembleDebug` 时会打进 APK；也可以拷到手机 `files/models/bump-world-0.1.0/`。图能加载时，启发式坑/带/盖会被替换（含本帧 0 框）。加载失败则保持启发式，HUD 不空白。
 
 会话上的未来冲击对齐（不进提醒）：
 

@@ -274,7 +274,7 @@ class CameraController(
     private val resultRing = CaptureResultRing()
 
     private fun handleYuv(image: Image) {
-        val y = copyY(image)
+        val y = copyYuv(image)
         val imageTs = image.timestamp
         val hit = resultRing.matchImage(imageTs)
         hit.codes.forEach { code ->
@@ -357,16 +357,37 @@ class CameraController(
         return map
     }
 
-    private fun copyY(image: Image): YuvImageBuffer {
-        val plane = image.planes[0]
-        val buf = plane.buffer.duplicate()
-        val rowStride = plane.rowStride
-        val h = image.height
-        val arr = ByteArray(rowStride * h)
-        buf.rewind()
-        val n = minOf(arr.size, buf.remaining())
-        buf.get(arr, 0, n)
-        return YuvImageBuffer(image.width, h, arr, rowStride)
+    private fun copyYuv(image: Image): YuvImageBuffer {
+        val yPlane = image.planes[0]
+        val yBuf = yPlane.buffer.duplicate()
+        yBuf.rewind()
+        val yStride = yPlane.rowStride
+        val yArr = ByteArray(yBuf.remaining())
+        yBuf.get(yArr)
+        val uPlane = image.planes.getOrNull(1)
+        val vPlane = image.planes.getOrNull(2)
+        val uArr = uPlane?.let { p ->
+            val b = p.buffer.duplicate()
+            b.rewind()
+            ByteArray(b.remaining()).also { b.get(it) }
+        }
+        val vArr = vPlane?.let { p ->
+            val b = p.buffer.duplicate()
+            b.rewind()
+            ByteArray(b.remaining()).also { b.get(it) }
+        }
+        return YuvImageBuffer(
+            width = image.width,
+            height = image.height,
+            y = yArr,
+            yRowStride = yStride,
+            u = uArr,
+            v = vArr,
+            uRowStride = uPlane?.rowStride ?: 0,
+            vRowStride = vPlane?.rowStride ?: 0,
+            uPixelStride = uPlane?.pixelStride ?: 1,
+            vPixelStride = vPlane?.pixelStride ?: 1,
+        )
     }
 
     private fun streamComboLabel(includeRecord: Boolean): String {

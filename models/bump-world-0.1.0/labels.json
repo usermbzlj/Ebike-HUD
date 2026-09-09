@@ -1,0 +1,21 @@
+{
+  "names": {
+    "0": "pothole",
+    "1": "large pothole",
+    "2": "speed bump",
+    "3": "sunken manhole cover",
+    "4": "manhole cover",
+    "5": ""
+  },
+  "yolo_names": [
+    "pothole",
+    "speed_bump",
+    "manhole_cover"
+  ],
+  "conf": 0.08,
+  "imgsz": 320,
+  "nms": false,
+  "engine": "yolo-bump",
+  "graph": "model.onnx",
+  "layout": "NCHW"
+}

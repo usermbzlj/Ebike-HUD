@@ -70,7 +70,30 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     debugImplementation("androidx.compose.ui:ui-tooling")
+}
+
+val bumpPackageDir = rootProject.projectDir.resolve("../models/bump-world-0.1.0")
+val generatedBumpAssets = layout.buildDirectory.dir("generated/rpar-assets")
+
+tasks.register<Copy>("copyBumpTfliteIfPresent") {
+    val tflite = bumpPackageDir.resolve("model.tflite")
+    val onnx = bumpPackageDir.resolve("model.onnx")
+    onlyIf { (tflite.isFile && tflite.length() > 1_000_000L) || (onnx.isFile && onnx.length() > 1_000_000L) }
+    from(bumpPackageDir) {
+        include("model.tflite", "model.onnx", "labels.json", "manifest.json", "MODEL_CARD.md")
+        into("models/bump-world-0.1.0")
+    }
+    into(generatedBumpAssets)
+}
+
+android.sourceSets.getByName("main").assets.srcDir(generatedBumpAssets)
+
+tasks.configureEach {
+    if (name == "preBuild") {
+        dependsOn("copyBumpTfliteIfPresent")
+    }
 }

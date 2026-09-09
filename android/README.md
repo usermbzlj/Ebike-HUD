@@ -58,3 +58,9 @@ The app starts without opening a camera. Replay and SAFE_MODE feed a generated r
 - `REALTIME_PERCEPTION_FULL_LOG` — perception plus full jsonl session logs
 - `SAFE_MODE` — engine disabled, test pattern allowed
 - `REPLAY` — test pattern, no camera
+
+## Bump LiteRT sidecar
+
+`rpar export-bump-tflite` writes `models/bump-world-0.1.0/model.onnx` on Windows (Ultralytics LiteRT export is Linux/macOS only) or `model.tflite` when that export works. If the graph exists at build time, Gradle copies it into APK assets. At runtime `ModelManager` keeps the heuristic engine for road/info-layer and replaces pothole / speed-bump / manhole observations when ONNX Runtime or LiteRT loads the graph. Camera2 analysis now copies U/V so letterbox RGB is not luma-only.
+
+Without the tflite file the app still builds and runs on heuristic pits.

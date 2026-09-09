@@ -95,16 +95,38 @@ class ModelManager(private val context: Context, private val cfg: RparConfig) {
                 .mapNotNull { d -> d?.let { JsonClassmapEngine.tryLoad(File(it, "seg_weights.json")) } }
                 .firstOrNull()
             val litert = sidecarTflite(dir)
-            val sidecar = json ?: litert
-            return if (sidecar != null) HybridEngine(heuristic, sidecar) else heuristic
+            val bump = bumpEngine(dir, litert)
+            val roadLite = litert?.takeUnless { it.replacesBumpInstances }
+            val road = json ?: roadLite
+            var engine: PerceptionEngine = heuristic
+            if (road != null) engine = HybridEngine(engine, road, replacesBump = false)
+            if (bump != null) engine = HybridEngine(engine, bump, replacesBump = true)
+            return engine
         }
         return HeuristicEngine(cfg)
     }
 
-    private fun sidecarTflite(dir: File?): PerceptionEngine? {
+    private fun sidecarTflite(dir: File?): LiteRtEngine? {
         if (dir == null) return null
-        val modelFile = dir.listFiles()?.firstOrNull { it.name.endsWith(".tflite") || it.name.endsWith(".bin") }
+        val modelFile = dir.listFiles()?.firstOrNull {
+            (it.name.endsWith(".tflite") || it.name.endsWith(".bin")) && it.length() > 64
+        }
         return if (modelFile != null) LiteRtEngine.tryLoad(cfg, modelFile) else null
+    }
+
+    private fun bumpEngine(dir: File?, fromPrimary: LiteRtEngine?): PerceptionEngine? {
+        if (fromPrimary?.replacesBumpInstances == true) return fromPrimary
+        val dirs = listOfNotNull(dir, resolvePackageDir("bump-world-0.1.0")).distinct()
+        for (d in dirs) {
+            val onnx = d.listFiles()?.firstOrNull { it.name.endsWith(".onnx") && it.length() > 1_000_000L }
+            val fromOnnx = onnx?.let { OnnxYoloEngine.tryLoad(cfg, it) }
+            if (fromOnnx != null) return fromOnnx
+            if (d != dir) {
+                val loaded = sidecarTflite(d)
+                if (loaded?.replacesBumpInstances == true) return loaded
+            }
+        }
+        return null
     }
 
     private fun readManifest(dir: File?): JSONObject? {

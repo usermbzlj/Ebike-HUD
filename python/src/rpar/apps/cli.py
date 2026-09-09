@@ -162,6 +162,12 @@ def main(argv: list[str] | None = None) -> int:
     trb.add_argument("--min-images", type=int, default=16)
     trb.add_argument("--skip-download", action="store_true")
 
+    xb = sub.add_parser("export-bump-tflite", help="export frozen YOLO bump detect graph for the phone LiteRT sidecar")
+    xb.add_argument("--imgsz", type=int, default=320)
+    xb.add_argument("--no-nms", action="store_true")
+    xb.add_argument("--out", default="")
+    xb.add_argument("--weights", default="")
+
     ml = sub.add_parser("map-label", help="map a public dataset class onto RPAR semantic/geometry/state")
     ml.add_argument("source")
     ml.add_argument("raw")
@@ -313,6 +319,13 @@ def main(argv: list[str] | None = None) -> int:
 
         inbox = Path(args.inbox) if args.inbox else None
         print(json.dumps(run_bump_train(inbox, Path(args.dataset), Path(args.out), sample_fps=args.fps, epochs=args.epochs, min_images=args.min_images, skip_download=args.skip_download), indent=2, ensure_ascii=False)[:8000])
+        return 0
+    if args.cmd == "export-bump-tflite":
+        from rpar.ml.bump_train import export_bump_tflite
+
+        w = Path(args.weights) if args.weights else None
+        dest = Path(args.out) if args.out else None
+        print(json.dumps(export_bump_tflite(imgsz=args.imgsz, nms=not args.no_nms, weights=w, out_dir=dest), indent=2, ensure_ascii=False)[:8000])
         return 0
     if args.cmd == "map-label":
         from rpar.ml.labelmap import map_record
