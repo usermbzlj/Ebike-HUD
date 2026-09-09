@@ -151,5 +151,6 @@ class HybridEngineMergeTest {
         assertTrue(m.observations.none { it.semanticType == SemanticType.POTHOLE })
         assertTrue(m.observations.any { it.semanticType == SemanticType.PUDDLE })
         assertTrue(m.observations.any { it.semanticType == SemanticType.MANHOLE_COVER })
+        assertEquals(InferenceBackend.CPU, m.backend)
     }
 }

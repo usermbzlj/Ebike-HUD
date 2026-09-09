@@ -92,9 +92,11 @@ object LiteRTBench {
         modelFile: File? = null,
         durationMs: Long = 800L,
         thermalC: (() -> Double?)? = null,
+        onnxFile: File? = null,
     ): JSONObject {
         val win = measureGemmWindow(durationMs, thermalC = thermalC)
         val tflite = probeInterpreter(modelFile)
+        val onnx = probeOnnx(onnxFile)
         val requested = STABLE_10MIN_S
         val stableStatus = if (win.durationS >= requested * 0.95) "ok" else "short_probe"
         val cpu = JSONObject()
@@ -110,6 +112,7 @@ object LiteRTBench {
         if (win.thermalStartC != null) cpu.put("thermal_start_c", win.thermalStartC)
         if (win.thermalEndC != null) cpu.put("thermal_end_c", win.thermalEndC)
         cpu.put("tflite", tflite.optString("status"))
+        cpu.put("onnx", onnx.optString("status"))
         val stable = JSONObject()
         stable.put("status", stableStatus)
         stable.put("requested_s", requested)
@@ -140,9 +143,10 @@ object LiteRTBench {
         o.put("candidates", cands)
         o.put(
             "note",
-            "CPU GEMM window + Interpreter probe; GPU/NPU need sideloaded CompiledModel on PKC110",
+            "CPU GEMM window + Interpreter/ONNX probe; GPU/NPU need sideloaded CompiledModel on PKC110",
         )
         o.put("tflite", tflite)
+        o.put("onnx", onnx)
         o.put("results", results)
         o.put("stable_10min", stable)
         return o
@@ -167,6 +171,33 @@ object LiteRTBench {
             o
         } catch (t: Throwable) {
             o.put("status", "placeholder_or_incompatible")
+            o.put("file", modelFile.name)
+            o.put("detail", t.message ?: t.javaClass.simpleName)
+            o
+        }
+    }
+
+    fun probeOnnx(modelFile: File?): JSONObject {
+        val o = JSONObject()
+        o.put("runtime", "onnxruntime-android")
+        if (modelFile == null || !modelFile.exists() || modelFile.length() < 1_000_000L) {
+            o.put("status", "runtime_present_no_file")
+            return o
+        }
+        return try {
+            val env = ai.onnxruntime.OrtEnvironment.getEnvironment()
+            val opts = ai.onnxruntime.OrtSession.SessionOptions()
+            val session = env.createSession(modelFile.absolutePath, opts)
+            val nIn = session.inputNames.size
+            val nOut = session.outputNames.size
+            session.close()
+            o.put("status", "ok")
+            o.put("file", modelFile.name)
+            o.put("input_tensors", nIn)
+            o.put("output_tensors", nOut)
+            o
+        } catch (t: Throwable) {
+            o.put("status", "incompatible_or_missing_runtime")
             o.put("file", modelFile.name)
             o.put("detail", t.message ?: t.javaClass.simpleName)
             o

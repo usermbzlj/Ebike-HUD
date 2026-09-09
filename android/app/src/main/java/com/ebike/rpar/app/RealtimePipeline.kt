@@ -286,6 +286,12 @@ class RealtimePipeline(
             val span = (inferTimes.last() - inferTimes.first()) / 1e9
             inferFps = (inferTimes.size - 1) / maxOf(span, 1e-3)
         }
+        val cap = try { engine.capability() } catch (_: Throwable) { emptyMap() }
+        val hudModel = if (cap["replaces_bump"] == true) {
+            "$modelVersion+${cap["model"] ?: "bump"}"
+        } else {
+            modelVersion
+        }
         val view = PerceptionView(
             timestampNs = t0,
             status = status,
@@ -296,7 +302,7 @@ class RealtimePipeline(
             quality = sel.q,
             speedKmh = speed?.times(3.6),
             backend = backend,
-            modelVersion = modelVersion,
+            modelVersion = hudModel,
             inferFps = inferFps,
             arFps = 1.0 / dt,
             latencyP95Ms = p95,

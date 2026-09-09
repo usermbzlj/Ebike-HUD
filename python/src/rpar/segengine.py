@@ -173,7 +173,7 @@ def merge_bump_perception(primary: PerceptionResult, bump: PerceptionResult) -> 
         road_polygon=primary.road_polygon,
         occluded_polygons=primary.occluded_polygons,
         observations=kept + extra,
-        backend=primary.backend,
+        backend=bump.backend,
         latency_ms=max(primary.latency_ms, bump.latency_ms),
         input_sizes=list(dict.fromkeys(list(primary.input_sizes) + list(bump.input_sizes))),
         dual_scale=primary.dual_scale,

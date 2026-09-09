@@ -167,6 +167,8 @@ def test_merge_bump_replaces_heuristic_when_model_hits():
     assert SemanticType.POTHOLE in kinds
     assert SemanticType.SPEED_BUMP not in kinds
     assert SemanticType.ROAD_JOINT in kinds
+    assert m.backend == InferenceBackend.GPU
+    assert stripped.backend == InferenceBackend.GPU
 
 
 def test_is_open_vocab_ignores_parent_folder_named_world():

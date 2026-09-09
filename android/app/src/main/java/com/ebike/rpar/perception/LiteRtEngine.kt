@@ -68,6 +68,7 @@ class HybridEngine(
                 return primary.copy(
                     observations = kept + extra,
                     latencyMs = maxOf(primary.latencyMs, sidecar.latencyMs),
+                    backend = sidecar.backend,
                     dualScale = true,
                 )
             }
