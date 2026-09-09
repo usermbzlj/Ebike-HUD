@@ -438,7 +438,7 @@ class RparRuntime(private val app: android.app.Application) {
             combo,
             sensorsJson,
             voice.ready,
-            File(app.filesDir, "models/${pipeline.modelVersion}/model.tflite").takeIf { it.exists() },
+            File(app.filesDir, "models/${pipeline.modelVersion.substringBefore("+")}/model.tflite").takeIf { it.exists() },
         )
         val f = probe.write(report)
         val text = f.readText()
@@ -451,8 +451,14 @@ class RparRuntime(private val app: android.app.Application) {
         _ui.value = _ui.value.copy(benchRunning = true, statusLine = "CAP-005 后端基准进行中")
         scope.launch {
             try {
-                val model = File(app.filesDir, "models/${pipeline.modelVersion}/model.tflite").takeIf { it.exists() }
-                val accel = LiteRTBench.run(model, durationMs = (seconds * 1000L).coerceAtLeast(50L)) { sensors.thermalC }
+                val model = File(app.filesDir, "models/${pipeline.modelVersion.substringBefore("+")}/model.tflite").takeIf { it.exists() }
+                val onnx = File(app.filesDir, "models/bump-world-0.1.0/model.onnx").takeIf { it.exists() }
+                val accel = LiteRTBench.run(
+                    model,
+                    durationMs = (seconds * 1000L).coerceAtLeast(50L),
+                    thermalC = { sensors.thermalC },
+                    onnxFile = onnx,
+                )
                 val dest = File(app.filesDir, "capability/capability_report.json")
                 val report = if (dest.exists()) {
                     try {
