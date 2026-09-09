@@ -59,9 +59,13 @@ def allow_new_observations(
     usable: bool,
     fresh: bool,
     occlusion_ratio: float = 0.0,
-    occ_block: float = 0.08,
+    occ_block: float = 0.40,
 ) -> bool:
-    """Do not spawn high-confidence tracks in blur/occlusion/lens-drop (spec appendix B M2)."""
+    """Do not spawn high-confidence tracks in blur/lens-drop, or when most of the frame is occluded.
+
+    A vehicle occupying ~8–20% of the frame still shows OCCLUDED on the HUD, but potholes
+    beside it must be allowed to track. Spec appendix B only blocks instances *under* the mask.
+    """
     if not fresh or not usable:
         return False
     if occlusion_ratio >= occ_block:
@@ -70,7 +74,6 @@ def allow_new_observations(
         PerceptionStatus.SEVERE_BLUR,
         PerceptionStatus.PERCEPTION_LIMITED,
         PerceptionStatus.LENS_CONTAMINATION,
-        PerceptionStatus.OCCLUDED,
     }
 
 
@@ -257,13 +260,20 @@ class RealtimePipeline:
             occ_ratio = occlusion_cover_ratio(self.last_occluded, frame.meta.width, frame.meta.height)
             if occ_ratio >= 0.08:
                 self.status = PerceptionStatus.OCCLUDED
-                allow_new = False
-            elif self.status == PerceptionStatus.OCCLUDED:
-                allow_new = False
+            allow_new = allow_new_observations(
+                self.status,
+                usable=sel_q.global_quality.usable,
+                fresh=True,
+                occlusion_ratio=occ_ratio,
+            )
+            if self.last_occluded:
+                from rpar.segengine import gate_observations
+
+                observations = gate_observations(observations, [], self.last_occluded, None)
         else:
             self.dropped_infer += 1
-            self.last_observations = []
             self.did_infer = False
+            observations = list(self.last_observations)
 
         gray = cv2.cvtColor(frame.bgr, cv2.COLOR_BGR2GRAY)
         optical_flow: dict[int, tuple[float, float]] = {}
@@ -285,11 +295,16 @@ class RealtimePipeline:
                         )
         self._prev_gray = gray
 
+        quality_ok = bool(sel_q.global_quality.usable) and self.status not in {
+            PerceptionStatus.SEVERE_BLUR,
+            PerceptionStatus.LENS_CONTAMINATION,
+            PerceptionStatus.PERCEPTION_LIMITED,
+        }
         tracks = self.tracker.update(
             observations,
             t0,
             allow_new_high_conf=allow_new,
-            quality_ok=allow_new,
+            quality_ok=quality_ok,
             dt_s=dt,
             camera_yaw_rate=float(frame.angular_velocity[2]) if frame.angular_velocity else 0.0,
             frame_w=float(frame.meta.width),
@@ -463,7 +478,7 @@ class RealtimePipeline:
                 RenderPrimitive(
                     track_id=-7 - i,
                     polygon=poly,
-                    color_rgba=(1.0, 0.55, 0.12, 0.58),
+                    color_rgba=(0.55, 0.58, 0.68, 0.42),
                     dashed=False,
                     thickness=2.0,
                     label=None if ui_mode != UiMode.RESEARCH else "vehicle",
@@ -574,10 +589,11 @@ class RealtimePipeline:
             info = obj.semantic_type in INFO_LAYER_SEMANTICS
             if info and not show_info:
                 continue
-            # PER-010: TRACKED is not a confirmed instance. Drawing it as a solid/label
-            # is what filled the night HUD with 0.58 rough_broken spam.
+            # PER-010: TRACKED rough/unknown is not a confirmed instance. Bump hazards
+            # may draw dashed so the visual layer stays ahead of voice.
             if (not info) and obj.lifecycle_state == LifecycleState.TRACKED:
-                continue
+                if not is_bump_hazard(obj.semantic_type, obj.geometry_type, obj.object_state):
+                    continue
             if obj.lifecycle_state == LifecycleState.PASSED:
                 fade = 0.35
             elif obj.lifecycle_state == LifecycleState.CANDIDATE:

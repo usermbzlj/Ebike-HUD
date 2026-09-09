@@ -94,6 +94,16 @@ def test_low_quality_pauses_alerts():
     d = pol.evaluate(_obj(), PerceptionStatus.SEVERE_BLUR, 10**10, True)
     assert d.fired is False
     assert "quality_pause" in d.reasons
+    bump = pol.evaluate(_obj(), PerceptionStatus.OCCLUDED, 10**10, True)
+    assert bump.fired is True
+    other = pol.evaluate(
+        _obj(track_id=8, semantic_type=SemanticType.ROUGH_BROKEN, geometry_type=GeometryType.ROUGH),
+        PerceptionStatus.OCCLUDED,
+        10**10,
+        True,
+    )
+    assert other.fired is False
+    assert "quality_pause" in other.reasons
 
 
 def test_one_alert_per_track_and_cooldown():

@@ -138,6 +138,25 @@ def test_m2_night_gate_rejects_rough_broken_storm():
     assert m2_clip_gates(night_bad)["pass"] is False
     assert m2_clip_gates(night_ok)["pass"] is True
     assert m2_clip_gates(day_ok)["pass"] is True
+    night_bump = {
+        "ok": True,
+        "alias": "night_25013",
+        "lighting": "night",
+        "run": {
+            "frames": 90,
+            "overlay_ok": True,
+            "n_confirmed_tracks": 1,
+            "n_alerts_fired": 1,
+            "n_rough_broken_confirmed": 0,
+            "n_info_confirmed": 0,
+            "n_bump_confirmed": 1,
+            "confirmed_semantics": {"pothole": 1},
+            "road_frame_share": 0.7,
+            "confirmed_per_min": 0.7,
+        },
+    }
+    assert m2_clip_gates(night_bump)["pass"] is True
+    assert "night_no_alerts" not in m2_clip_gates(night_bump)["checks"]
     report = m2_field_report([night_ok, day_ok])
     assert report["pass"] is True
     assert "first_confirm_distance_with_geometric_GT" in report["not_claimed"]

@@ -56,7 +56,7 @@ data class AlertConfig(
     val minEffective: Double = 0.48,
     val realertSeverityJump: Int = 1,
     val pauseOnDegraded: Boolean = true,
-    val bumpScoreThreshold: Double = 0.20,
+    val bumpScoreThreshold: Double = 0.08,
 )
 
 data class RenderConfig(
@@ -266,7 +266,7 @@ data class RparConfig(
                     minEffective = a.optDouble("min_effective", 0.48),
                     realertSeverityJump = a.optInt("realert_severity_jump", 1),
                     pauseOnDegraded = a.optBoolean("pause_on_degraded", true),
-                    bumpScoreThreshold = a.optDouble("bump_score_threshold", 0.20),
+                    bumpScoreThreshold = a.optDouble("bump_score_threshold", 0.08),
                 ),
                 render = RenderConfig(
                     ridingMaxLabels = r.optInt("riding_max_labels", 5),

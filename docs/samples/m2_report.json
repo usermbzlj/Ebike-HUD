@@ -10,12 +10,17 @@
         "day_road_polygon": true
       },
       "pass": true,
-      "n_confirmed_tracks": 0,
-      "n_alerts_fired": 0,
-      "confirmed_per_min": 0.0,
+      "n_confirmed_tracks": 3,
+      "n_info_confirmed": 0,
+      "n_bump_confirmed": 3,
+      "n_solid_confirmed": 0,
+      "n_alerts_fired": 1,
+      "confirmed_per_min": 60.0,
       "road_frame_share": 1.0,
+      "first_confirm_median_m": 2.14,
+      "first_confirm_is_gt": false,
       "spec_solid_fp_per_min": 0.5,
-      "note": "Night confirmed==0 is a false-positive proxy on the smooth-asphalt clip, not GT first-confirm."
+      "note": "Night solid-damage==0 is an asphalt-noise proxy; info-layer puddle/gravel is allowed. YOLO-World bump confirms/alerts are allowed. Predicted first-confirm is not geometric GT."
     },
     {
       "alias": "extra",
@@ -26,11 +31,16 @@
       },
       "pass": true,
       "n_confirmed_tracks": 0,
+      "n_info_confirmed": 0,
+      "n_bump_confirmed": 0,
+      "n_solid_confirmed": 0,
       "n_alerts_fired": 0,
       "confirmed_per_min": 0.0,
       "road_frame_share": 1.0,
+      "first_confirm_median_m": null,
+      "first_confirm_is_gt": false,
       "spec_solid_fp_per_min": null,
-      "note": "Night confirmed==0 is a false-positive proxy on the smooth-asphalt clip, not GT first-confirm."
+      "note": "Night solid-damage==0 is an asphalt-noise proxy; info-layer puddle/gravel is allowed. YOLO-World bump confirms/alerts are allowed. Predicted first-confirm is not geometric GT."
     },
     {
       "alias": "night_25013",
@@ -38,17 +48,22 @@
       "checks": {
         "overlay_ok": true,
         "has_frames": true,
-        "night_no_confirmed_tracks": true,
-        "night_no_alerts": true,
-        "night_no_rough_broken": true
+        "night_no_solid_damage": true,
+        "night_no_rough_broken": true,
+        "night_no_alerts": true
       },
       "pass": true,
       "n_confirmed_tracks": 0,
+      "n_info_confirmed": 0,
+      "n_bump_confirmed": 0,
+      "n_solid_confirmed": 0,
       "n_alerts_fired": 0,
       "confirmed_per_min": 0.0,
       "road_frame_share": 1.0,
+      "first_confirm_median_m": null,
+      "first_confirm_is_gt": false,
       "spec_solid_fp_per_min": 1.0,
-      "note": "Night confirmed==0 is a false-positive proxy on the smooth-asphalt clip, not GT first-confirm."
+      "note": "Night solid-damage==0 is an asphalt-noise proxy; info-layer puddle/gravel is allowed. YOLO-World bump confirms/alerts are allowed. Predicted first-confirm is not geometric GT."
     }
   ],
   "pass": true,

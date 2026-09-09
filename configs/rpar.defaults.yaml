@@ -44,7 +44,7 @@ alert:
   min_effective: 0.48
   realert_severity_jump: 1
   pause_on_degraded: true
-  bump_score_threshold: 0.20
+  bump_score_threshold: 0.08
 render:
   riding_max_labels: 5
   ar_target_fps: 60

@@ -113,6 +113,9 @@ def test_keep_box_rejects_full_frame_road():
     assert keep_box("pothole", (0, 120, 959, 534), 960, 540) is False
     assert keep_box("pothole", (200, 180, 380, 300), 640, 360) is True
     assert keep_box("manhole_cover", (500, 350, 570, 390), 960, 540) is True
+    assert keep_box("manhole_cover", (693, 257, 807, 291), 960, 540) is True
+    assert keep_box("pothole", (1, 154, 954, 535), 960, 540) is False
+    assert keep_box("pothole", (20, 400, 80, 460), 960, 540) is False
     bgr = np.zeros((360, 640, 3), dtype=np.uint8)
     obs = detection_to_obs(_frame(bgr), "large pothole", (200, 180, 380, 300), 0.62, bgr)
     assert obs is not None
@@ -128,7 +131,10 @@ def test_merge_bump_replaces_heuristic_when_model_hits():
         source_frame_id=0,
         road_polygon=[(0, 10), (40, 10), (40, 40), (0, 40)],
         occluded_polygons=[],
-        observations=[_obs(SemanticType.SPEED_BUMP, (8, 8, 16, 16), geometry=GeometryType.CONVEX)],
+        observations=[
+            _obs(SemanticType.SPEED_BUMP, (8, 8, 16, 16), geometry=GeometryType.CONVEX),
+            _obs(SemanticType.ROAD_JOINT, (24, 24, 32, 32), geometry=GeometryType.FLAT, state=ObjectState.NORMAL, severity=Severity.NONE),
+        ],
         backend=InferenceBackend.HEURISTIC,
         latency_ms=4.0,
         input_sizes=[(96, 48)],
@@ -143,7 +149,9 @@ def test_merge_bump_replaces_heuristic_when_model_hits():
         latency_ms=12.0,
         input_sizes=[(640, 640)],
     )
-    assert any(o.semantic_type == SemanticType.SPEED_BUMP for o in merge_bump_perception(h, empty).observations)
+    stripped = merge_bump_perception(h, empty)
+    assert not any(o.semantic_type == SemanticType.SPEED_BUMP for o in stripped.observations)
+    assert any(o.semantic_type == SemanticType.ROAD_JOINT for o in stripped.observations)
     bump = PerceptionResult(
         timestamp_ns=1,
         source_frame_id=0,
@@ -158,6 +166,16 @@ def test_merge_bump_replaces_heuristic_when_model_hits():
     kinds = {o.semantic_type for o in m.observations}
     assert SemanticType.POTHOLE in kinds
     assert SemanticType.SPEED_BUMP not in kinds
+    assert SemanticType.ROAD_JOINT in kinds
+
+
+def test_is_open_vocab_ignores_parent_folder_named_world():
+    from pathlib import Path
+    from rpar.ml.world_bump import _is_open_vocab
+
+    assert _is_open_vocab(Path("models/yolo-world/yolov8m-worldv2.pt")) is True
+    assert _is_open_vocab(Path("models/yolo-world/rpar-bump-vocab.pt")) is False
+    assert _is_open_vocab(Path("models/bump-world-0.1.0/best.pt")) is False
 
 
 def test_inbox_ingest_and_fake_proposals(tmp_path):
@@ -247,5 +265,5 @@ def test_missing_bump_weights_do_not_load_ultralytics(monkeypatch):
     monkeypatch.setattr("rpar.ml.world_bump.resolve_bump_weights", lambda path=None: None)
     assert try_load_world_bump() is None
     cfg = load_config()
-    assert cfg.alert.bump_score_threshold <= 0.25
+    assert cfg.alert.bump_score_threshold <= 0.10
     assert CLASS_TO_ID["pothole"] == 0

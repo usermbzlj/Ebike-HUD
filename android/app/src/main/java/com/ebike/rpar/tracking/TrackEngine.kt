@@ -252,15 +252,17 @@ class TrackEngine(private val cfg: TrackingConfig) {
     private fun advance(tr: TrackInternal, nowNs: Long, observed: Boolean, qualityOk: Boolean) {
         val age = (nowNs - tr.createdNs) / 1e9
         var need = cfg.minConfirmHits
+        val bump = tr.semantic == SemanticType.POTHOLE || tr.semantic == SemanticType.SPEED_BUMP ||
+            (tr.semantic == SemanticType.MANHOLE_COVER && tr.geometry == GeometryType.CONCAVE)
         if (tr.semantic == SemanticType.UNKNOWN_ANOMALY) need += cfg.unknownAnomalyExtraHits
         if (tr.semantic == SemanticType.ROUGH_BROKEN) need += 3
-        if (tr.semantic == SemanticType.POTHOLE || tr.semantic == SemanticType.SPEED_BUMP ||
-            (tr.semantic == SemanticType.MANHOLE_COVER && tr.geometry == GeometryType.CONCAVE)
-        ) {
-            need = minOf(need, maxOf(2, cfg.bumpConfirmHits))
-        }
+        if (bump) need = minOf(need, maxOf(2, cfg.bumpConfirmHits))
         if (tr.state == LifecycleState.CANDIDATE) {
-            if (!observed) {
+            val trackedAge = if (bump) 0.08 else cfg.confirmWindowS * 0.4
+            if (tr.hits >= 2 && age >= trackedAge) {
+                tr.state = LifecycleState.TRACKED
+                history += Triple(tr.trackId, tr.state, "associated")
+            } else if (!observed) {
                 if ((nowNs - tr.lastNs) / 1e9 > cfg.candidateMaxAgeS) {
                     tr.state = LifecycleState.EXPIRED
                     tr.expireReason = "candidate_timeout"
@@ -268,13 +270,10 @@ class TrackEngine(private val cfg: TrackingConfig) {
                 }
                 return
             }
-            if (tr.hits >= 2 && age >= cfg.confirmWindowS * 0.4) {
-                tr.state = LifecycleState.TRACKED
-                history += Triple(tr.trackId, tr.state, "associated")
-            }
         }
-        if (tr.state == LifecycleState.TRACKED && observed && qualityOk) {
-            if (tr.hits >= need && age >= cfg.confirmWindowS) {
+        if (tr.state == LifecycleState.TRACKED && qualityOk) {
+            val confAge = if (bump) 0.12 else cfg.confirmWindowS
+            if (tr.hits >= need && age >= confAge && (observed || bump)) {
                 tr.state = LifecycleState.CONFIRMED
                 tr.confirmedNs = nowNs
                 history += Triple(tr.trackId, tr.state, "stable_visible")

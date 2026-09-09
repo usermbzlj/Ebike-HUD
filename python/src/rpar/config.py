@@ -68,7 +68,7 @@ class AlertConfig:
     min_effective: float = 0.48
     realert_severity_jump: int = 1
     pause_on_degraded: bool = True
-    bump_score_threshold: float = 0.20
+    bump_score_threshold: float = 0.08
 
 
 @dataclass

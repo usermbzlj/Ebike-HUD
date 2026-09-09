@@ -64,17 +64,18 @@ def test_unknown_needs_more_hits():
     assert all(t.state != LifecycleState.CONFIRMED for t in eng.tracks.values())
 
 
-def test_occlusion_blocks_new_observation_spawns():
-    assert allow_new_observations(PerceptionStatus.OCCLUDED, usable=True, fresh=True) is False
-    assert allow_new_observations(PerceptionStatus.NORMAL, usable=True, fresh=True, occlusion_ratio=0.2) is False
+def test_occlusion_sets_hud_without_freezing_all_tracks():
+    assert allow_new_observations(PerceptionStatus.OCCLUDED, usable=True, fresh=True) is True
+    assert allow_new_observations(PerceptionStatus.NORMAL, usable=True, fresh=True, occlusion_ratio=0.2) is True
+    assert allow_new_observations(PerceptionStatus.NORMAL, usable=True, fresh=True, occlusion_ratio=0.50) is False
     assert allow_new_observations(PerceptionStatus.NORMAL, usable=True, fresh=True, occlusion_ratio=0.01) is True
+    assert allow_new_observations(PerceptionStatus.SEVERE_BLUR, usable=True, fresh=True) is False
     poly = [(0.0, 0.0), (80.0, 0.0), (80.0, 50.0), (0.0, 50.0)]
     assert occlusion_cover_ratio([poly], 100, 100) >= 0.39
 
     sim = RoadSimulator(SimConfig(width=320, height=180, fps=15, duration_s=1.2, blur_windows=[], occlude_windows=[(0.4, 1.15)]))
     cfg = load_config()
     pipe = RealtimePipeline(cfg, oracle_engine_for_sim(sim), GeometryEngine(sim.mount, cfg.geometry, sim.k))
-    before: set[int] = set()
     during: set[int] = set()
     saw_occ = False
     for i in range(sim.n_frames()):
@@ -82,11 +83,10 @@ def test_occlusion_blocks_new_observation_spawns():
         t = i / sim.sim.fps
         view = pipe.step(frame)
         ids = {tr.track_id for tr in view.tracks if tr.lifecycle_state in {LifecycleState.CONFIRMED, LifecycleState.ALERTED}}
-        if t < 0.38:
-            before |= ids
-        elif 0.5 <= t <= 1.1:
+        if 0.5 <= t <= 1.1:
             during |= ids
             if view.status == PerceptionStatus.OCCLUDED:
                 saw_occ = True
     assert saw_occ
-    assert not (during - before)
+    # A vehicle-sized occluder must not wipe every confirmed track (potholes beside a car).
+    assert during

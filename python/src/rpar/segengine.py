@@ -85,6 +85,14 @@ def _point_in_poly(x: float, y: float, poly: list[tuple[float, float]]) -> bool:
     return float(cv2.pointPolygonTest(cnt, (float(x), float(y)), False)) >= 0.0
 
 
+def _near_poly(x: float, y: float, poly: list[tuple[float, float]], slack_px: float = 56.0) -> bool:
+    """True if the point is inside or within slack_px of the polygon (curb manholes)."""
+    if len(poly) < 3:
+        return True
+    cnt = np.asarray(poly, dtype=np.float32)
+    return float(cv2.pointPolygonTest(cnt, (float(x), float(y)), True)) >= -float(slack_px)
+
+
 def _obs_center(obs) -> tuple[float, float]:
     x0, y0, x1, y1 = obs.bbox
     return 0.5 * (x0 + x1), 0.5 * (y0 + y1)
@@ -152,13 +160,13 @@ _BUMP_TYPES = {SemanticType.POTHOLE, SemanticType.SPEED_BUMP, SemanticType.MANHO
 
 
 def merge_bump_perception(primary: PerceptionResult, bump: PerceptionResult) -> PerceptionResult:
-    """When the bump net returns instances, they replace heuristic pothole/cover/hump boxes."""
-    if not bump.observations:
-        return primary
+    """Bump-net output owns pothole/cover/hump. Empty model output still drops heuristic FPs."""
     kept = [o for o in primary.observations if o.semantic_type not in _BUMP_TYPES]
     extra = list(bump.observations)
     if primary.occluded_polygons:
         extra = gate_observations(extra, [], primary.occluded_polygons, None)
+    if len(primary.road_polygon) >= 3:
+        extra = [o for o in extra if _near_poly(*_obs_center(o), primary.road_polygon)]
     return PerceptionResult(
         timestamp_ns=primary.timestamp_ns,
         source_frame_id=primary.source_frame_id,

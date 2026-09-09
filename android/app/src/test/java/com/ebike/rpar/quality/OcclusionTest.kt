@@ -13,8 +13,10 @@ class OcclusionTest {
         )
         val r = occlusionCoverRatio(poly, 100, 100)
         assertTrue(r >= 0.49 && r <= 0.51)
-        assertFalse(allowNewObservations(PerceptionStatus.OCCLUDED, usable = true, fresh = true, occlusionRatio = 0.0))
-        assertFalse(allowNewObservations(PerceptionStatus.NORMAL, usable = true, fresh = true, occlusionRatio = 0.2))
+        assertTrue(allowNewObservations(PerceptionStatus.OCCLUDED, usable = true, fresh = true, occlusionRatio = 0.0))
+        assertTrue(allowNewObservations(PerceptionStatus.NORMAL, usable = true, fresh = true, occlusionRatio = 0.2))
+        assertFalse(allowNewObservations(PerceptionStatus.NORMAL, usable = true, fresh = true, occlusionRatio = 0.50))
         assertTrue(allowNewObservations(PerceptionStatus.NORMAL, usable = true, fresh = true, occlusionRatio = 0.01))
+        assertFalse(allowNewObservations(PerceptionStatus.SEVERE_BLUR, usable = true, fresh = true, occlusionRatio = 0.0))
     }
 }

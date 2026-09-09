@@ -27,12 +27,11 @@ fun allowNewObservations(
     usable: Boolean,
     fresh: Boolean,
     occlusionRatio: Double = 0.0,
-    occBlock: Double = 0.08,
+    occBlock: Double = 0.40,
 ): Boolean {
     if (!fresh || !usable) return false
     if (occlusionRatio >= occBlock) return false
     return status != PerceptionStatus.SEVERE_BLUR &&
         status != PerceptionStatus.PERCEPTION_LIMITED &&
-        status != PerceptionStatus.LENS_CONTAMINATION &&
-        status != PerceptionStatus.OCCLUDED
+        status != PerceptionStatus.LENS_CONTAMINATION
 }

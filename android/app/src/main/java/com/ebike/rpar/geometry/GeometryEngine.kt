@@ -2,8 +2,11 @@ package com.ebike.rpar.geometry
 
 import com.ebike.rpar.config.GeometryConfig
 import com.ebike.rpar.model.Direction
+import com.ebike.rpar.model.GeometryType
 import com.ebike.rpar.model.Intrinsics
+import com.ebike.rpar.model.LifecycleState
 import com.ebike.rpar.model.MountProfile
+import com.ebike.rpar.model.SemanticType
 import com.ebike.rpar.model.groundContact
 import com.ebike.rpar.tracking.TrackInternal
 import java.util.ArrayDeque
@@ -160,6 +163,9 @@ class GeometryEngine(
 
     companion object {
         fun shouldMarkPassed(tr: TrackInternal, dist: Double?, prevDist: Double?, nearM: Double): Boolean {
+            val bump = tr.semantic == SemanticType.POTHOLE || tr.semantic == SemanticType.SPEED_BUMP ||
+                (tr.semantic == SemanticType.MANHOLE_COVER && tr.geometry == GeometryType.CONCAVE)
+            if (bump && tr.state != LifecycleState.CONFIRMED && tr.state != LifecycleState.ALERTED) return false
             if (dist == null) return false
             if (dist < nearM && tr.mean[3] > 40) return true
             if (prevDist != null && dist > prevDist + 4.0 && dist < 8.0) return true
