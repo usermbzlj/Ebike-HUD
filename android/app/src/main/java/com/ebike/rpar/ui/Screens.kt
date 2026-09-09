@@ -53,7 +53,7 @@ fun DisclaimerScreen(onAccept: () -> Unit) {
         Text("Road Perception AR", color = HudAccent, fontSize = 28.sp)
         Spacer(Modifier.height(12.dp))
         Text(
-            "实验性功能，不能替代骑行者观察，不输出控制指令。本系统不提供转向或制动建议，请始终以自身观察为准。",
+            "实验性功能，不能替代骑行者观察，不输出控制指令。日常骑车请用「骑行采集」App 录数据；本应用是车把 HUD。",
             color = HudText,
             fontSize = 16.sp,
         )
@@ -128,6 +128,9 @@ fun HudScreen(runtime: RparRuntime, onOpenSettings: () -> Unit) {
         )
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                if (ui.remainingHours > 0) {
+                    Text("还可录 %.1f h".format(ui.remainingHours), color = HudMuted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterVertically))
+                }
                 Box(
                     Modifier
                         .clip(RoundedCornerShape(8.dp))
@@ -209,11 +212,16 @@ fun HudScreen(runtime: RparRuntime, onOpenSettings: () -> Unit) {
         if (ui.storageLight) {
             Text("存储不足，无视频轻量记录", color = HudMuted, fontSize = 12.sp, modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
         }
-        Button(
-            onClick = { runtime.emergencyStop() },
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = HudPanel),
-        ) { Text("紧急停止", color = HudText) }
+        Row(Modifier.align(Alignment.TopEnd).padding(top = 72.dp, end = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = { runtime.markEvent("hud") },
+                colors = ButtonDefaults.buttonColors(containerColor = HudPanel),
+            ) { Text("标记", color = HudText) }
+            Button(
+                onClick = { runtime.emergencyStop() },
+                colors = ButtonDefaults.buttonColors(containerColor = HudPanel),
+            ) { Text("紧急停止", color = HudText) }
+        }
     }
 }
 

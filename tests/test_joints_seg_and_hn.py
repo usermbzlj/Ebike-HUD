@@ -14,12 +14,33 @@ from rpar.quality import evaluate_frame
 from rpar.simulator import RoadSimulator, SimConfig, WorldObject
 
 
-def test_lens_drops_mark_unusable():
+def _run_lens(lens_drops: bool) -> tuple[bool, int]:
+    sim = RoadSimulator(SimConfig(width=320, height=180, fps=10, duration_s=3.2, blur_windows=[], lens_drops=lens_drops))
+    cfg = load_config()
+    pipe = RealtimePipeline(cfg, oracle_engine_for_sim(sim), GeometryEngine(sim.mount, cfg.geometry, sim.k))
+    saw_lens = False
+    for i in range(sim.n_frames()):
+        frame, _ = sim.frame_at(i)
+        view = pipe.step(frame)
+        if view.status.value == "LENS_CONTAMINATION":
+            saw_lens = True
+    return saw_lens, pipe.lens.static_tiles
+
+
+def test_lens_drops_are_detected_temporally():
+    # Drops stay put while the road streams past: motionless tiles with structure => LENS_CONTAMINATION.
+    flagged, tiles = _run_lens(True)
+    assert flagged, f"static drop tiles never flagged (static_tiles={tiles})"
+    # The same moving scene without drops must not trip the detector (plain sky has no structure).
+    clean, _ = _run_lens(False)
+    assert clean is False
+
+
+def test_single_frame_quality_has_no_lens_opinion():
     sim = RoadSimulator(SimConfig(width=320, height=180, fps=10, duration_s=0.2, blur_windows=[], lens_drops=True))
     frame, _ = sim.frame_at(0)
-    q = evaluate_frame(frame.bgr, QualityConfig(lens_drop_blob_min=8))
-    assert q.global_quality.visibility_class == VisibilityClass.LENS_DROP
-    assert q.global_quality.usable is False
+    q = evaluate_frame(frame.bgr, QualityConfig())
+    assert q.global_quality.visibility_class != VisibilityClass.LENS_DROP
 
 
 def test_road_joint_does_not_speak():

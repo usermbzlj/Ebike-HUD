@@ -37,6 +37,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -93,6 +96,9 @@ class RparRuntime(private val app: android.app.Application) {
     private val prefs = app.getSharedPreferences("rpar", Context.MODE_PRIVATE)
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
+    private val ingestBusy = AtomicBoolean(false)
+    private val latestRaw = AtomicReference<Pair<com.ebike.rpar.model.SynchronizedFrame, Boolean>?>(null)
+    private val droppedFrames = AtomicInteger(0)
     private var writer: SessionWriter? = null
     private var clips: EventClipBuffer? = null
     private var sessionStart = 0L
@@ -319,11 +325,18 @@ class RparRuntime(private val app: android.app.Application) {
         testPattern.stop()
         camera.close()
         sensors.stop()
-        writer?.writeImuIntervals(sensors.intervalJson())
-        writer?.finalize(SystemClock.elapsedRealtimeNanos())
+        val w = writer
         writer = null
         clips = null
         app.stopService(Intent(app, CaptureService::class.java))
+        if (w != null) {
+            val imu = sensors.intervalJson()
+            val end = SystemClock.elapsedRealtimeNanos()
+            scope.launch(Dispatchers.IO) {
+                w.writeImuIntervals(imu)
+                w.finalize(end)
+            }
+        }
     }
 
     fun onServiceStarted() {}
@@ -516,8 +529,26 @@ class RparRuntime(private val app: android.app.Application) {
     }
 
     private fun ingest(raw: com.ebike.rpar.model.SynchronizedFrame, fromCamera: Boolean) {
+        latestRaw.set(raw to fromCamera)
+        if (!ingestBusy.compareAndSet(false, true)) {
+            droppedFrames.incrementAndGet()
+            pipeline.droppedInfer += 1
+            return
+        }
         scope.launch {
-            mutex.withLock {
+            try {
+                while (true) {
+                    val pair = latestRaw.getAndSet(null) ?: break
+                    processFrame(pair.first, pair.second)
+                }
+            } finally {
+                ingestBusy.set(false)
+            }
+        }
+    }
+
+    private suspend fun processFrame(raw: com.ebike.rpar.model.SynchronizedFrame, fromCamera: Boolean) {
+        mutex.withLock {
                 if (_ui.value.emergency && fromCamera) return@withLock
                 if (_ui.value.paused) return@withLock
                 val frame = sync.attach(raw)
@@ -535,8 +566,9 @@ class RparRuntime(private val app: android.app.Application) {
                     acc.size >= 3 &&
                     severeImpact(acc[0], acc[1], acc[2], gmag)
                 ) {
-                    emergencyStop("imu_crash")
-                    return@withLock
+                    writer?.writeMark(frame.meta.sensorTimestampNs, "imu_impact")
+                    diagnostics.event("APP", "imu_impact", "keep_recording")
+                    _ui.value = _ui.value.copy(statusLine = "记录到剧烈振动，采集继续", lastMark = "imu_impact")
                 }
                 latestBitmap = frame.bitmap
                 pipeline.thermalC = sensors.thermalC
@@ -619,7 +651,6 @@ class RparRuntime(private val app: android.app.Application) {
                     mountName = pipeline.geometry.mount.profileId,
                     cameraDegrade = camera.lastDegrade,
                 )
-            }
         }
     }
 }

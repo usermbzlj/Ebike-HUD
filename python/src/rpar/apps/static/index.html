@@ -62,10 +62,11 @@
   <header>
     <div class="brand">
       <h1>ROAD PERCEPTION AR</h1>
-      <span>Camera · IMU · Geometry · On-device AI</span>
+      <span>v0.2 · 骑行采集 + HUD + 回放工作台</span>
     </div>
     <div class="tabs">
-      <button class="active" data-tab="live">骑行/研究</button>
+      <button class="active" data-tab="live">仿真预览</button>
+      <button data-tab="ride">骑行采集</button>
       <button data-tab="cap">能力探测</button>
       <button data-tab="cal">安装标定</button>
       <button data-tab="mod">模型包</button>
@@ -107,6 +108,20 @@
         <div id="tracks"></div>
       </aside>
     </div>
+    <section class="page" id="page-ride" style="grid-column: 1 / -1">
+      <h2>骑行采集 App</h2>
+      <p>日常骑车请装独立 APK <b>骑行采集</b>（<code>android/capture</code>），不要开 HUD 推理。打开即录：主摄 + IMU + GPS，颠簸只打标记不停录。</p>
+      <pre>cd android
+.\gradlew :capture:assembleDebug
+# APK: android/capture/build/outputs/apk/debug/capture-debug.apk
+# 包名 com.ebike.rpar.capture · 装到手机后车把横屏打开，点「开始骑」
+
+回家把会话 ZIP 拷到 artifacts/sessions/ 后，在「回放/验收」里打开。</pre>
+      <div class="ctrl">
+        <button id="btnSessions">刷新本机会话</button>
+      </div>
+      <pre id="ridePre">尚未扫描</pre>
+    </section>
     <section class="page" id="page-cap" style="grid-column: 1 / -1">
       <h2>CAP-001 设备能力报告</h2>
       <p class="warn">Camera2 / IMU / LiteRT 真值必须在 PKC110 上运行时探测，桌面仅显示契约与占位。</p>
@@ -218,6 +233,7 @@
         document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
         $("wrap-live").classList.toggle("active", tab === "live");
         if (tab !== "live") $("page-" + tab).classList.add("active");
+        if (tab === "ride") $("ridePre").textContent = JSON.stringify(await fetch("/api/sessions").then(r=>r.json()), null, 2);
         if (tab === "cap") $("capPre").textContent = JSON.stringify(await fetch("/api/capability").then(r=>r.json()), null, 2);
         if (tab === "cal") $("calPre").textContent = JSON.stringify(await fetch("/api/mount").then(r=>r.json()), null, 2);
         if (tab === "mod") {
@@ -353,7 +369,14 @@
       $("repPre").textContent = JSON.stringify(r, null, 2);
       $("repStatus").textContent = r.ok ? ("建议偏移 " + r.best_offset_ms + " ms") : (r.reason || "无会话");
     };
-    tick();
+    $("btnSessions") && ($("btnSessions").onclick = async () => {
+      $("ridePre").textContent = JSON.stringify(await fetch("/api/sessions").then(r=>r.json()), null, 2);
+    });
+    fetch("/api/state").then(r => r.json()).then(st => {
+      $("speed").textContent = (st.speed_kmh ?? 0).toFixed(0) + " km/h";
+      $("status").textContent = st.status_copy || "就绪";
+      $("view").src = "/api/frame.jpg?t=" + Date.now();
+    }).catch(() => {});
   </script>
 </body>
 </html>

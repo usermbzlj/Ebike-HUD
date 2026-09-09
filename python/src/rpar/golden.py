@@ -447,6 +447,7 @@ def run_video_file(
         "mean_blur": float(np.mean(blurs)) if blurs else None,
         "mean_glare": float(np.mean(glares)) if glares else None,
         "mean_infer_fps": pipe.last_view.infer_fps if pipe.last_view else 0.0,
+        "infer_count": int(getattr(pipe, "infer_count", 0) or 0),
         "p95_latency_ms": pipe.last_view.latency_p95_ms if pipe.last_view else 0.0,
         "overlay_ok": (out_dir / "overlay.mp4").exists() and (out_dir / "overlay.mp4").stat().st_size > 1000,
     }

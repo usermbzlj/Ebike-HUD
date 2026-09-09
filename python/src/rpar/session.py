@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,7 +22,7 @@ from rpar.timebase import percentile_intervals_ms
 
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
-    with path.open("wb" if False else "rb") as f:  # noqa: SIM115
+    with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
@@ -29,6 +30,43 @@ def sha256_file(path: Path) -> str:
 
 def json_dumps(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+
+
+class JsonlSink:
+    """Keeps one buffered handle per jsonl file; flushes on a timer instead of per line."""
+
+    def __init__(self, root: Path, flush_interval_s: float = 1.0) -> None:
+        self.root = Path(root)
+        self._handles: dict[str, Any] = {}
+        self._flush_interval = flush_interval_s
+        self._last_flush = time.monotonic()
+
+    def write(self, rel: str, obj: Any) -> None:
+        h = self._handles.get(rel)
+        if h is None:
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            h = path.open("a", encoding="utf-8", buffering=1 << 16)
+            self._handles[rel] = h
+        h.write(json_dumps(obj))
+        h.write("\n")
+        now = time.monotonic()
+        if now - self._last_flush >= self._flush_interval:
+            self.flush()
+
+    def flush(self) -> None:
+        for h in self._handles.values():
+            h.flush()
+        self._last_flush = time.monotonic()
+
+    def close(self) -> None:
+        for h in self._handles.values():
+            try:
+                h.flush()
+                h.close()
+            except OSError:
+                pass
+        self._handles.clear()
 
 
 @dataclass
@@ -62,9 +100,10 @@ class SessionWriter:
         self._seg_index = 0
         self._video: cv2.VideoWriter | None = None
         self._seg_frames = 0
-        self._seg_limit = 300 * 60  # overridden by fps * segment_seconds later
+        self._seg_limit = 300 * 60  # overridden by open_segment(fps, size, segment_frames)
         self._fps = 30
         self._size = (1920, 1080)
+        self._sink = JsonlSink(self.root)
         self._init_dirs()
 
     def _init_dirs(self) -> None:
@@ -137,21 +176,14 @@ class SessionWriter:
             raise RuntimeError("segment not open")
         self._video.write(bgr)
         self._seg_frames += 1
-        with (self.root / "camera" / "frame_metadata.jsonl").open("a", encoding="utf-8") as f:
-            f.write(json_dumps(_to_jsonable(meta)) + "\n")
+        self._sink.write("camera/frame_metadata.jsonl", _to_jsonable(meta))
         if imu:
-            kind = imu.get("sensor_type", "GYRO")
-            mapping = {"GYRO": "gyro.jsonl", "ACCEL": "accelerometer.jsonl", "ROTATION_VECTOR": "rotation_vector.jsonl"}
-            name = mapping.get(str(kind), "gyro.jsonl")
-            with (self.root / "imu" / name).open("a", encoding="utf-8") as f:
-                f.write(json_dumps(imu) + "\n")
+            self.write_imu(imu)
         if location:
-            with (self.root / "location" / "location.jsonl").open("a", encoding="utf-8") as f:
-                f.write(json_dumps(location) + "\n")
+            self._sink.write("location/location.jsonl", location)
         if observations:
-            with (self.root / "perception" / "observations.jsonl").open("a", encoding="utf-8") as f:
-                for o in observations:
-                    f.write(json_dumps(o) + "\n")
+            for o in observations:
+                self._sink.write("perception/observations.jsonl", o)
         if road_polygon is not None or occluded_polygons is not None:
             self.write_masks(
                 meta.sensor_timestamp_ns,
@@ -159,30 +191,25 @@ class SessionWriter:
                 occluded_polygons or [],
             )
         if tracks:
-            with (self.root / "perception" / "tracks.jsonl").open("a", encoding="utf-8") as f:
-                for t in tracks:
-                    f.write(json_dumps(t.to_dict()) + "\n")
+            for t in tracks:
+                self._sink.write("perception/tracks.jsonl", t.to_dict())
         if alerts:
-            with (self.root / "events" / "alerts.jsonl").open("a", encoding="utf-8") as f:
-                for a in alerts:
-                    f.write(json_dumps(a.to_dict()) + "\n")
+            for a in alerts:
+                self._sink.write("events/alerts.jsonl", a.to_dict())
         if diagnostics:
-            with (self.root / "diagnostics" / "runtime.jsonl").open("a", encoding="utf-8") as f:
-                f.write(json_dumps(diagnostics) + "\n")
+            self._sink.write("diagnostics/runtime.jsonl", diagnostics)
         if self._seg_frames >= self._seg_limit:
             self.close_segment()
             self.open_segment(self._fps, self._size, self._seg_limit)
 
+    _IMU_FILES = {"GYRO": "imu/gyro.jsonl", "ACCEL": "imu/accelerometer.jsonl", "ROTATION_VECTOR": "imu/rotation_vector.jsonl"}
+
     def write_imu(self, sample: dict[str, Any]) -> None:
         kind = str(sample.get("sensor_type", "GYRO"))
-        mapping = {"GYRO": "gyro.jsonl", "ACCEL": "accelerometer.jsonl", "ROTATION_VECTOR": "rotation_vector.jsonl"}
-        name = mapping.get(kind, "gyro.jsonl")
-        with (self.root / "imu" / name).open("a", encoding="utf-8") as f:
-            f.write(json_dumps(sample) + "\n")
+        self._sink.write(self._IMU_FILES.get(kind, "imu/gyro.jsonl"), sample)
 
     def write_event(self, event: dict[str, Any]) -> None:
-        with (self.root / "diagnostics" / "events.jsonl").open("a", encoding="utf-8") as f:
-            f.write(json_dumps(event) + "\n")
+        self._sink.write("diagnostics/events.jsonl", event)
 
     def write_masks(
         self,
@@ -190,16 +217,20 @@ class SessionWriter:
         road_polygon: list[tuple[float, float]],
         occluded_polygons: list[list[tuple[float, float]]],
     ) -> None:
-        with (self.root / "perception" / "road.jsonl").open("a", encoding="utf-8") as f:
-            f.write(json_dumps({"timestamp_ns": timestamp_ns, "road_polygon": road_polygon}) + "\n")
-        with (self.root / "perception" / "occlusion.jsonl").open("a", encoding="utf-8") as f:
-            f.write(json_dumps({"timestamp_ns": timestamp_ns, "occluded_polygons": occluded_polygons}) + "\n")
+        self._sink.write("perception/road.jsonl", {"timestamp_ns": timestamp_ns, "road_polygon": road_polygon})
+        self._sink.write(
+            "perception/occlusion.jsonl", {"timestamp_ns": timestamp_ns, "occluded_polygons": occluded_polygons}
+        )
 
     def write_mark(self, timestamp_ns: int, note: str, frame_id: int | None = None) -> None:
-        with (self.root / "events" / "marks.jsonl").open("a", encoding="utf-8") as f:
-            f.write(json_dumps({"timestamp_ns": timestamp_ns, "note": note, "frame_id": frame_id}) + "\n")
+        self._sink.write("events/marks.jsonl", {"timestamp_ns": timestamp_ns, "note": note, "frame_id": frame_id})
+        self._sink.flush()
+
+    def flush(self) -> None:
+        self._sink.flush()
 
     def imu_interval_report(self) -> dict[str, Any]:
+        self._sink.flush()
         out: dict[str, Any] = {}
         for name, key in (
             ("gyro.jsonl", "gyro"),
@@ -230,6 +261,7 @@ class SessionWriter:
 
     def finalize(self, end_ns: int) -> Path:
         self.close_segment()
+        self._sink.close()
         self.manifest.end_elapsed_realtime_ns = end_ns
         intervals = self.imu_interval_report()
         (self.root / "diagnostics" / "imu_intervals.json").write_text(
@@ -308,11 +340,9 @@ def verify_session(root: Path) -> dict[str, Any]:
         report["warnings"].append("no checksums.sha256")
     cam = root / "camera" / "frame_metadata.jsonl"
     if cam.exists():
-        ts = []
-        for line in cam.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                ts.append(json.loads(line).get("sensor_timestamp_ns") or json.loads(line).get("sensor_timestamp_ns", 0))
-        report["camera_interval"] = percentile_intervals_ms([int(t) for t in ts if t])
+        ts = [int(row["sensor_timestamp_ns"]) for row in iter_jsonl(cam) if row.get("sensor_timestamp_ns")]
+        report["camera_interval"] = percentile_intervals_ms(ts)
+        report["camera_frames"] = len(ts)
     accel = root / "imu" / "accelerometer.jsonl"
     if accel.exists():
         from rpar.crash import scan_accel_jsonl

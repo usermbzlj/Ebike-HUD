@@ -1,4 +1,10 @@
-"""Frame quality, local visibility and infer-frame scheduler (QUAL-001..010)."""
+"""Frame quality, local visibility and infer-frame scheduler (QUAL-001..010).
+
+Sharpness is exposure-normalised so a dark but sharp night frame is still usable; the
+underexposure score handles darkness separately. Lens contamination is detected
+temporally (`LensContaminationDetector`): drops on the lens stay still while the
+road scene moves.
+"""
 
 from __future__ import annotations
 
@@ -11,22 +17,29 @@ from rpar.config import QualityConfig
 from rpar.enums import PerceptionStatus, VisibilityClass
 from rpar.models import FrameQuality, FrameQualityMap, QualityTile, SynchronizedFrame
 
+ANALYSIS_WIDTH = 480
+
 
 def _laplacian_var(gray: np.ndarray) -> float:
     return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
 
-def _motion_blur_score(gray: np.ndarray) -> float:
+def exposure_normalized_lap(lap: float, mean_gray: float) -> float:
+    """Laplacian variance scales with contrast^2; normalise to a mid-grey exposure."""
+    ref = float(np.clip(mean_gray, 24.0, 255.0))
+    return float(lap * (128.0 / ref) ** 2)
+
+
+def _motion_blur_score(gray: np.ndarray, lap_adj: float) -> float:
     gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
-    gy = cv2.Sobel(gray, cv2.CV_32F, 3, 1, ksize=3) if False else cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+    gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
     mag = np.hypot(gx, gy)
     if mag.mean() < 1e-3:
         return 1.0
     anisotropy = abs(np.mean(np.abs(gx)) - np.mean(np.abs(gy))) / (np.mean(mag) + 1e-6)
     spread = float(mag.std() / (mag.mean() + 1e-6))
     # High anisotropy + low Laplacian typically means directional smear.
-    lap = _laplacian_var(gray)
-    blur = np.clip((18.0 - lap) / 18.0, 0.0, 1.0)
+    blur = np.clip((18.0 - lap_adj) / 18.0, 0.0, 1.0)
     return float(np.clip(0.55 * blur + 0.45 * np.clip(anisotropy * 1.8, 0, 1) * (1.0 - np.clip(spread / 2.0, 0, 1)), 0, 1))
 
 
@@ -103,17 +116,17 @@ def _road_roi_mask(h: int, w: int) -> np.ndarray:
     return mask
 
 
-def _classify(q: FrameQuality, road_visible: float, occluded: float, cfg: QualityConfig) -> VisibilityClass:
+def _classify(q: FrameQuality, lap_adj: float, road_visible: float, occluded: float, cfg: QualityConfig) -> VisibilityClass:
     if occluded > 0.45:
         return VisibilityClass.OCCLUDED
     if q.glare >= cfg.glare_block:
         return VisibilityClass.GLARE
-    if q.motion_blur >= cfg.motion_blur_block or q.sharpness < cfg.laplacian_usable:
-        return VisibilityClass.BLUR
     if q.underexposure >= cfg.underexposure_block:
         return VisibilityClass.UNDEREXPOSED
     if q.overexposure >= cfg.overexposure_block:
         return VisibilityClass.OVEREXPOSED
+    if q.motion_blur >= cfg.motion_blur_block or lap_adj < cfg.laplacian_usable:
+        return VisibilityClass.BLUR
     if road_visible < cfg.min_road_visible:
         return VisibilityClass.UNKNOWN
     return VisibilityClass.CLEAR
@@ -125,26 +138,30 @@ def evaluate_frame(
     headlight_mean: float | None = None,
 ) -> FrameQualityMap:
     h, w = bgr.shape[:2]
-    small = cv2.resize(bgr, (480, int(480 * h / w)), interpolation=cv2.INTER_AREA)
+    small = cv2.resize(bgr, (ANALYSIS_WIDTH, max(1, int(ANALYSIS_WIDTH * h / w))), interpolation=cv2.INTER_AREA)
     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
     lap = _laplacian_var(gray)
-    motion = _motion_blur_score(gray)
+    lap_adj = exposure_normalized_lap(lap, float(gray.mean()))
+    motion = _motion_blur_score(gray, lap_adj)
     under, over = _exposure_scores(gray)
     glare = _glare_score(small, headlight_mean=headlight_mean)
-    defocus = _defocus_score(gray, lap)
+    defocus = _defocus_score(gray, lap_adj)
     road = _road_roi_mask(small.shape[0], small.shape[1])
     road_visible = float((gray[road > 0] > 18).mean()) if road.any() else 0.0
-    # crude vehicle/occlusion: large saturated or uniform blobs in mid-upper road
-    mid = small[int(small.shape[0] * 0.28) : int(small.shape[0] * 0.62)]
+    # crude vehicle/occlusion proxy: saturated blobs inside the mid-height road corridor
     occluded = 0.0
-    if mid.size:
+    sh, sw = small.shape[:2]
+    mid_rows = slice(int(sh * 0.28), int(sh * 0.62))
+    mid = small[mid_rows]
+    mid_road = road[mid_rows] > 0
+    if mid.size and mid_road.any():
         hsv_m = cv2.cvtColor(mid, cv2.COLOR_BGR2HSV)
-        chroma = cv2.inRange(hsv_m, (0, 70, 50), (180, 255, 255))
-        occluded = float((chroma > 0).mean())
+        chroma = cv2.inRange(hsv_m, (0, 70, 50), (180, 255, 255)) > 0
+        occluded = float((chroma & mid_road).sum() / max(1, mid_road.sum()))
 
-    sharpness_n = float(np.clip(lap / 80.0, 0, 1))
+    sharpness_n = float(np.clip(lap_adj / 80.0, 0, 1))
     usable = (
-        lap >= cfg.laplacian_usable
+        lap_adj >= cfg.laplacian_usable
         and motion < cfg.motion_blur_block
         and glare < cfg.glare_block
         and under < cfg.underexposure_block
@@ -163,11 +180,10 @@ def evaluate_frame(
         road_visible_ratio=road_visible,
         reason="" if usable else "low_quality",
     )
-    gq.visibility_class = _classify(gq, road_visible, occluded, cfg)
+    gq.visibility_class = _classify(gq, lap_adj, road_visible, occluded, cfg)
 
     tiles: list[QualityTile] = []
     tr, tc = cfg.tile_rows, cfg.tile_cols
-    sh, sw = small.shape[:2]
     for r in range(tr):
         for c in range(tc):
             y0, y1 = int(r * sh / tr), int((r + 1) * sh / tr)
@@ -175,7 +191,7 @@ def evaluate_frame(
             patch = gray[y0:y1, x0:x1]
             if patch.size == 0:
                 continue
-            plap = _laplacian_var(patch)
+            plap = exposure_normalized_lap(_laplacian_var(patch), float(patch.mean()))
             pmean = float(patch.mean()) / 255.0
             vis = VisibilityClass.CLEAR
             score = float(np.clip(plap / 60.0, 0, 1))
@@ -196,21 +212,6 @@ def evaluate_frame(
                 )
             )
 
-    # lens drop: small dark round blobs near the top of the frame
-    _, bw = cv2.threshold(gray[: sh // 3], 40, 255, cv2.THRESH_BINARY_INV)
-    n_labels, _, stats, _ = cv2.connectedComponentsWithStats(bw, connectivity=8)
-    drops = 0
-    max_area = max(400, int(0.008 * sw * sh))
-    for i in range(1, n_labels):
-        area = stats[i, cv2.CC_STAT_AREA]
-        ww, hh = stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]
-        if 8 <= area <= max_area and 0.55 <= ww / max(hh, 1) <= 1.8:
-            drops += 1
-    if drops >= cfg.lens_drop_blob_min:
-        gq.visibility_class = VisibilityClass.LENS_DROP
-        gq.usable = False
-        gq.reason = "lens_drop"
-
     return FrameQualityMap(
         global_quality=gq,
         tiles=tiles,
@@ -219,6 +220,67 @@ def evaluate_frame(
         selected_age_ms=0.0,
         degrade_reason=None if gq.usable else gq.reason or gq.visibility_class.value,
     )
+
+
+class LensContaminationDetector:
+    """QUAL-009: tiles that never change while the rest of the frame moves are lens drops / dirt.
+
+    Feed one downscaled grey frame per step. `update` returns the number of tiles that have
+    been static for at least `static_seconds` during a moving scene.
+    """
+
+    def __init__(self, cfg: QualityConfig, static_seconds: float | None = None) -> None:
+        self.cfg = cfg
+        self.static_seconds = static_seconds if static_seconds is not None else cfg.lens_static_seconds
+        self._prev: np.ndarray | None = None
+        self._static_since: np.ndarray | None = None
+        self.static_tiles = 0
+        self.flagged: bool = False
+
+    def reset(self) -> None:
+        self._prev = None
+        self._static_since = None
+        self.static_tiles = 0
+        self.flagged = False
+
+    def update(self, gray_small: np.ndarray, now_ns: int) -> int:
+        tr, tc = self.cfg.tile_rows, self.cfg.tile_cols
+        g = gray_small.astype(np.float32)
+        if self._prev is None or self._prev.shape != g.shape:
+            self._prev = g
+            self._static_since = np.full((tr, tc), -1, dtype=np.int64)
+            self.static_tiles = 0
+            self.flagged = False
+            return 0
+        diff = np.abs(g - self._prev)
+        self._prev = g
+        h, w = diff.shape
+        lap = np.abs(cv2.Laplacian(g, cv2.CV_32F))
+        energy = np.zeros((tr, tc), dtype=np.float32)
+        edges = np.zeros((tr, tc), dtype=np.float32)
+        for r in range(tr):
+            for c in range(tc):
+                ys = slice(int(r * h / tr), int((r + 1) * h / tr))
+                xs = slice(int(c * w / tc), int((c + 1) * w / tc))
+                patch = diff[ys, xs]
+                energy[r, c] = float(patch.mean()) if patch.size else 0.0
+                edges[r, c] = float(lap[ys, xs].mean()) if patch.size else 0.0
+        # Median is ~0 when only the road corridor moves; use a high percentile.
+        scene = float(np.percentile(energy, 92))
+        assert self._static_since is not None
+        if scene < 1.5:
+            # Scene itself is still (stopped at a light): no evidence either way.
+            return self.static_tiles
+        # A contaminated tile has structure (drop edges) that does not move. Plain sky has no
+        # structure and is ignored; the moving road has structure that moves.
+        static = (energy < max(0.35, 0.08 * scene)) & (edges > 0.85)
+        newly = static & (self._static_since < 0)
+        self._static_since[newly] = now_ns
+        self._static_since[~static] = -1
+        held = static & (self._static_since >= 0) & ((now_ns - self._static_since) / 1e9 >= self.static_seconds)
+        self.static_tiles = int(held.sum())
+        self.flagged = self.static_tiles >= self.cfg.lens_static_tiles
+        return self.static_tiles
 
 
 def mask_visibility(quality: FrameQualityMap, bbox: tuple[float, float, float, float]) -> float:
@@ -234,15 +296,20 @@ def mask_visibility(quality: FrameQualityMap, bbox: tuple[float, float, float, f
     return float(np.mean(scores))
 
 
-def perception_status(qmap: FrameQualityMap, consecutive_bad_s: float) -> PerceptionStatus:
+def perception_status(
+    qmap: FrameQualityMap,
+    consecutive_bad_s: float,
+    cfg: QualityConfig | None = None,
+) -> PerceptionStatus:
+    limited_s = cfg.bad_streak_limited_s if cfg is not None else 0.45
     g = qmap.global_quality
     if g.visibility_class == VisibilityClass.LENS_DROP:
         return PerceptionStatus.LENS_CONTAMINATION
     if g.visibility_class == VisibilityClass.OCCLUDED or qmap.occupancy_occluded_ratio > 0.5:
         return PerceptionStatus.OCCLUDED
-    if consecutive_bad_s > 0.45 or (not g.usable and g.visibility_class == VisibilityClass.BLUR):
-        if consecutive_bad_s > 0.45:
-            return PerceptionStatus.PERCEPTION_LIMITED
+    if consecutive_bad_s > limited_s:
+        return PerceptionStatus.PERCEPTION_LIMITED
+    if not g.usable and g.visibility_class == VisibilityClass.BLUR:
         return PerceptionStatus.SEVERE_BLUR
     if g.visibility_class in {VisibilityClass.GLARE, VisibilityClass.UNDEREXPOSED, VisibilityClass.OVEREXPOSED}:
         return PerceptionStatus.DEGRADED_VISIBILITY
@@ -257,6 +324,9 @@ class QualityScheduler:
     def __init__(self, cfg: QualityConfig) -> None:
         self.cfg = cfg
         self._buf: deque[tuple[SynchronizedFrame, FrameQualityMap]] = deque()
+
+    def __len__(self) -> int:
+        return len(self._buf)
 
     def push(self, frame: SynchronizedFrame, qmap: FrameQualityMap) -> None:
         self._buf.append((frame, qmap))

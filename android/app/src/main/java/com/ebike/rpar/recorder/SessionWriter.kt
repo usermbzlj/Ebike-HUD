@@ -17,8 +17,11 @@ import com.ebike.rpar.model.TrackedRoadObject
 import com.ebike.rpar.model.polygonToJson
 import org.json.JSONArray
 import org.json.JSONObject
+import android.os.SystemClock
+import java.io.BufferedWriter
 import java.io.File
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -40,6 +43,9 @@ class SessionWriter(
         private set
     private var videoSegments = 0
     private val startNs = startNs
+    private val writers = ConcurrentHashMap<String, BufferedWriter>()
+    private var hoursCached = 0.0
+    private var hoursAt = 0L
 
     init {
         listOf(
@@ -141,10 +147,14 @@ class SessionWriter(
     }
 
     fun remainingHours(bitrateMbps: Double = cfg.camera.bitrateMbps): Double {
+        val now = SystemClock.elapsedRealtime()
+        if (now - hoursAt < 2000 && hoursAt > 0L) return hoursCached
         val stat = StatFs(root.absolutePath)
         val free = stat.availableBytes
         val bytesPerHour = bitrateMbps * 1e6 / 8.0 * 3600.0
-        return maxOf(0.0, free / bytesPerHour)
+        hoursCached = maxOf(0.0, free / bytesPerHour)
+        hoursAt = now
+        return hoursCached
     }
 
     fun lowStorage(): Boolean {
@@ -154,6 +164,8 @@ class SessionWriter(
 
     fun finalize(endNs: Long) {
         if (closed) return
+        writers.values.forEach { runCatching { it.flush(); it.close() } }
+        writers.clear()
         writeImpactAlign()
         writeManifest(endNs)
         writeChecksums()
@@ -192,7 +204,14 @@ class SessionWriter(
                 val s = line.trim()
                 if (s.isEmpty()) return@forEach
                 val o = JSONObject(s)
-                accel.add(com.ebike.rpar.model.AccelZ(o.optLong("timestamp_ns"), o.optDouble("z")))
+                accel.add(
+                    com.ebike.rpar.model.AccelZ(
+                        o.optLong("timestamp_ns"),
+                        o.optDouble("z"),
+                        o.optDouble("x", 0.0),
+                        o.optDouble("y", 0.0),
+                    ),
+                )
             }
         }
         var speed = 10.0
@@ -231,7 +250,14 @@ class SessionWriter(
     }
 
     private fun appendLine(rel: String, obj: JSONObject) {
-        File(root, rel).appendText(obj.toString() + "\n")
+        val w = writers.getOrPut(rel) {
+            File(root, rel).parentFile?.mkdirs()
+            File(root, rel).bufferedWriter()
+        }
+        synchronized(w) {
+            w.write(obj.toString())
+            w.newLine()
+        }
     }
 
     private fun writeManifest(endNs: Long?) {

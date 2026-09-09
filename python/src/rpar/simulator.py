@@ -48,9 +48,10 @@ def default_world() -> list[WorldObject]:
         WorldObject("pot_center", SemanticType.POTHOLE, GeometryType.CONCAVE, ObjectState.ABNORMAL, Severity.HEAVY, 28.0, 0.15, 1.1, 0.9, (18, 18, 18)),
         WorldObject("manhole_right", SemanticType.MANHOLE_COVER, GeometryType.CONCAVE, ObjectState.ABNORMAL, Severity.MEDIUM, 22.0, 1.35, 0.8, 0.8, (50, 55, 60)),
         WorldObject("bump", SemanticType.SPEED_BUMP, GeometryType.CONVEX, ObjectState.ABNORMAL, Severity.MEDIUM, 36.0, 0.0, 0.45, 3.4, (30, 30, 30)),
-        WorldObject("patch_flat", SemanticType.REPAIR_PATCH, GeometryType.FLAT, ObjectState.NORMAL, Severity.NONE, 18.0, -1.8, 1.6, 1.1, (42, 42, 48)),
-        WorldObject("rough_left", SemanticType.ROUGH_BROKEN, GeometryType.ROUGH, ObjectState.ABNORMAL, Severity.LIGHT, 16.0, -1.1, 2.2, 1.4, (36, 34, 32)),
-        WorldObject("joint", SemanticType.ROAD_JOINT, GeometryType.FLAT, ObjectState.NORMAL, Severity.NONE, 14.0, 0.0, 0.12, 3.2, (88, 88, 92)),
+        # fresh asphalt patch: darker than the road but far from a shadowed hole
+        WorldObject("patch_flat", SemanticType.REPAIR_PATCH, GeometryType.FLAT, ObjectState.NORMAL, Severity.NONE, 18.0, -1.8, 1.6, 1.1, (84, 84, 90)),
+        WorldObject("rough_left", SemanticType.ROUGH_BROKEN, GeometryType.ROUGH, ObjectState.ABNORMAL, Severity.LIGHT, 16.0, -1.1, 2.2, 1.4, (92, 90, 88)),
+        WorldObject("joint", SemanticType.ROAD_JOINT, GeometryType.FLAT, ObjectState.NORMAL, Severity.NONE, 14.0, 0.0, 0.12, 3.2, (150, 150, 156)),
     ]
 
 
@@ -198,7 +199,9 @@ class RoadSimulator:
         if self.sim.night:
             bgr = np.full((h, w, 3), 18, dtype=np.uint8)
         else:
-            bgr = np.full((h, w, 3), 42, dtype=np.uint8)
+            # Daytime verge / off-road fill. Real daytime asphalt sits around 110-145 grey after
+            # auto exposure; the old 42 made every "day" frame look like night to the detector.
+            bgr = np.full((h, w, 3), 96, dtype=np.uint8)
         # sky
         sky_h = int(h * 0.38)
         if self.sim.night:
@@ -247,11 +250,14 @@ class RoadSimulator:
             bgr = cv2.GaussianBlur(bgr, (5, 5), 1.1)
         if self.sim.lens_drops:
             n = 12
-            r = max(4, int(min(w, h) * 0.016))
+            r = max(6, int(min(w, h) * 0.028))
             for i in range(n):
                 x = int(w * (0.12 + 0.07 * (i % 6)))
-                y = int(h * (0.06 + 0.07 * (i // 6)))
-                cv2.circle(bgr, (x, y), r, (8, 8, 10), -1)
+                y = int(h * (0.08 + 0.08 * (i // 6)))
+                # Real drops are bright refraction with a darker rim — and they stay put.
+                cv2.circle(bgr, (x, y), r, (210, 220, 230), -1)
+                cv2.circle(bgr, (x, y), max(2, r - 2), (40, 44, 48), 1)
+                cv2.circle(bgr, (x - r // 3, y - r // 3), max(1, r // 4), (245, 248, 255), -1)
         if self._in_windows(t, self.sim.blur_windows):
             k = 21
             bgr = cv2.GaussianBlur(bgr, (k, k), 8)
@@ -269,9 +275,9 @@ class RoadSimulator:
     def _draw_road(self, bgr: np.ndarray, ego_y: float) -> None:
         w, h = self.sim.width, self.sim.height
         wet = self.sim.wet or self.sim.rain
-        asphalt = (58, 58, 62) if not self.sim.night else (36, 36, 38)
+        asphalt = (118, 118, 124) if not self.sim.night else (36, 36, 38)
         if wet:
-            asphalt = (48, 42, 38) if not self.sim.night else (28, 26, 24)
+            asphalt = (96, 88, 82) if not self.sim.night else (28, 26, 24)
         pts = self._road_pixel_pts()
         if len(pts) >= 3:
             cv2.fillConvexPoly(bgr, np.array(pts, dtype=np.int32), asphalt)

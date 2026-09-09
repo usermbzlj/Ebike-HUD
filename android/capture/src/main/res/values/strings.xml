@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">骑行采集</string>
+    <string name="notif_channel">骑行采集</string>
+    <string name="notif_title">正在采集骑行</string>
+    <string name="notif_body">相机 + IMU + GPS 仅保存在本机。请自己看路。</string>
+</resources>

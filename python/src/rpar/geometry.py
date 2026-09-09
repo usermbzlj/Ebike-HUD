@@ -8,18 +8,11 @@ from dataclasses import replace
 import numpy as np
 
 from rpar.config import GeometryConfig
-from rpar.enums import Direction, GeometryType, LifecycleState, SemanticType
-from rpar.maskutil import ground_contact, polygon_area
+from rpar.enums import Direction, LifecycleState
+from rpar.maskutil import ground_contact
 from rpar.models import Intrinsics, MountProfile
-from rpar.tracking import TrackInternal
-from rpar.transforms import (
-    apply_h,
-    default_intrinsics,
-    ground_homography,
-    invert_h,
-    pixel_to_ground,
-    project_vehicle_point,
-)
+from rpar.tracking import TrackInternal, is_bump_track
+from rpar.transforms import default_intrinsics, pixel_to_ground, project_vehicle_point
 
 
 class GeometryEngine:
@@ -27,8 +20,6 @@ class GeometryEngine:
         self.mount = mount
         self.cfg = cfg
         self.k = intrinsics or default_intrinsics()
-        self._h = ground_homography(self.mount, self.k)
-        self._h_inv = invert_h(self._h)
         self._dist_hist: dict[int, deque[tuple[int, float]]] = defaultdict(lambda: deque(maxlen=12))
         self._ttc_hist: dict[int, deque[float]] = defaultdict(lambda: deque(maxlen=8))
         self.valid = bool(mount.valid)
@@ -38,10 +29,12 @@ class GeometryEngine:
         self.mount = mount
         if intrinsics is not None:
             self.k = intrinsics
-        self._h = ground_homography(self.mount, self.k)
-        self._h_inv = invert_h(self._h)
         self.valid = bool(mount.valid)
         self.invalid_reason = None if mount.valid else "no_mount_profile"
+
+    def forget(self, track_id: int) -> None:
+        self._dist_hist.pop(track_id, None)
+        self._ttc_hist.pop(track_id, None)
 
     def health_check(
         self,
@@ -84,26 +77,36 @@ class GeometryEngine:
             return None
         return xy
 
+    def distance_confidence(self, uv: tuple[float, float], dist: float, quality_at_mask: float) -> float:
+        """Confidence from the pixel sensitivity of the ground ray at this image row.
+
+        One pixel of contact-point error near the horizon is metres of range error; near the
+        wheel it is centimetres. sigma_px is the assumed localisation error at 1080p.
+        """
+        sigma_px = self.cfg.contact_sigma_px * (self.k.height / 1080.0)
+        above = pixel_to_ground(np.array([uv[0], uv[1] - sigma_px]), self.mount, self.k)
+        below = pixel_to_ground(np.array([uv[0], uv[1] + sigma_px]), self.mount, self.k)
+        if above is None or below is None:
+            rel_err = 1.0
+        else:
+            rel_err = abs(float(above[1]) - float(below[1])) / (2.0 * max(dist, 0.5))
+        conf = float(np.clip(1.0 - 2.5 * rel_err, 0.05, 0.95))
+        if quality_at_mask < 0.4:
+            conf *= 0.7
+        return float(np.clip(conf, 0.0, 1.0))
+
     def distance_for_track(self, tr: TrackInternal, now_ns: int) -> tuple[float | None, float, bool]:
         if not self.valid:
             return None, 0.0, False
-        contact = ground_contact(tr.polygon) if tr.polygon else (tr.mean[0], tr.mean[1])
+        contact = ground_contact(tr.polygon) if tr.polygon else (float(tr.mean[0]), float(tr.mean[1]))
         road = self.contact_to_road(contact)
         if road is None:
             return None, 0.0, False
         tr.road_xy = road
-        dist = float(np.hypot(road[0], road[1]))
-        # prefer forward component
         dist = float(max(0.5, road[1]))
         self._dist_hist[tr.track_id].append((now_ns, dist))
-        conf = 0.82
-        if dist > 30:
-            conf = 0.45
-        elif dist > 20:
-            conf = 0.62
-        if tr.quality_at_mask < 0.4:
-            conf *= 0.7
-        return dist, float(np.clip(conf, 0, 1)), True
+        conf = self.distance_confidence(contact, dist, tr.quality_at_mask)
+        return dist, conf, True
 
     def ttc(self, tr: TrackInternal, speed_mps: float | None, now_ns: int) -> float | None:
         hist = self._dist_hist.get(tr.track_id)
@@ -116,28 +119,23 @@ class GeometryEngine:
         t = t - t[0]
         if t[-1] < 0.08:
             return None
-        A = np.vstack([t, np.ones_like(t)]).T
-        slope, _ = np.linalg.lstsq(A, d, rcond=None)[0]
+        a = np.vstack([t, np.ones_like(t)]).T
+        slope, _ = np.linalg.lstsq(a, d, rcond=None)[0]
         closing = -slope
         if closing < 0.4:
             return None
+        # Static road objects close at ego speed; the fit only guards against a bad speed source.
         fused = 0.55 * closing + 0.45 * speed_mps
         dist = d[-1]
         raw = dist / max(fused, 0.2)
         self._ttc_hist[tr.track_id].append(raw)
         return float(np.median(self._ttc_hist[tr.track_id]))
 
-    def corridor_edges(self, look_ahead_m: float = 28.0) -> tuple[np.ndarray, np.ndarray]:
-        hw = self.cfg.corridor_half_width_m
-        left = np.array([[-hw, 2.0], [-hw, look_ahead_m]], dtype=np.float64)
-        right = np.array([[hw, 2.0], [hw, look_ahead_m]], dtype=np.float64)
-        return left, right
-
     def direction_for(self, tr: TrackInternal) -> Direction:
         if tr.road_xy is None:
-            # fallback would be screen thirds — forbidden as primary. Still need a value.
+            # fallback would be screen thirds - forbidden as primary. Still need a value.
             return Direction.UNKNOWN
-        x, y = float(tr.road_xy[0]), float(tr.road_xy[1])
+        x = float(tr.road_xy[0])
         width_m = 0.0
         if tr.polygon and self.valid:
             xs = []
@@ -148,7 +146,7 @@ class GeometryEngine:
             if xs:
                 width_m = max(xs) - min(xs)
         hw = self.cfg.corridor_half_width_m
-        if width_m >= self.cfg.across_min_width_m and min(abs(x) , hw) < hw:
+        if width_m >= self.cfg.across_min_width_m and abs(x) < hw:
             return Direction.ACROSS
         if abs(x) <= hw * 0.72:
             return Direction.CENTER_FRONT
@@ -161,8 +159,9 @@ class GeometryEngine:
             return 0.2
         x, y = float(tr.road_xy[0]), float(tr.road_xy[1])
         hw = self.cfg.corridor_half_width_m
+        horizon = max(self.cfg.relevance_horizon_m, 1.0)
         lat = np.exp(-0.5 * (x / (hw * 1.15)) ** 2)
-        along = np.clip((40.0 - y) / 40.0, 0, 1)
+        along = np.clip((horizon - y) / horizon, 0, 1)
         return float(np.clip(0.75 * lat + 0.25 * along, 0, 1))
 
     def display_distance(self, dist: float | None, valid: bool, confidence: float) -> str | None:
@@ -177,18 +176,9 @@ class GeometryEngine:
             return "远处"
         return f"约 {int(round(dist))} m"
 
-    def band(self, dist: float | None) -> str:
-        if dist is None:
-            return "unknown"
-        if dist < 12:
-            return "near"
-        if dist < 25:
-            return "mid"
-        return "far"
-
-    def project_corridor_pixels(self) -> list[tuple[float, float]]:
-        left, right = self.corridor_edges()
-        pts_m = [left[0], left[1], right[1], right[0]]
+    def project_corridor_pixels(self, look_ahead_m: float = 28.0) -> list[tuple[float, float]]:
+        hw = self.cfg.corridor_half_width_m
+        pts_m = [(-hw, 2.0), (-hw, look_ahead_m), (hw, look_ahead_m), (hw, 2.0)]
         pix = []
         for x, y in pts_m:
             uv = project_vehicle_point(np.array([x, y, 0.0]), self.mount, self.k)
@@ -207,8 +197,13 @@ def fit_mount_from_distance_markers(
     mount: MountProfile,
     k: Intrinsics,
     markers: list[tuple[float, float]],
+    max_residual_px: float = 12.0,
 ) -> MountProfile:
-    """CAL-003: fit pitch and height so (0, d, 0) projects to the measured pixel Y."""
+    """CAL-003: fit pitch and height so (0, d, 0) projects to the measured pixel Y.
+
+    The profile is only marked valid when the fit residual is small; a bad marker set
+    keeps the previous validity instead of silently blessing garbage.
+    """
     if len(markers) < 2:
         return mount
     best = (mount.pitch_deg, mount.camera_height_m)
@@ -229,13 +224,15 @@ def fit_mount_from_distance_markers(
             if err < best_err:
                 best_err = err
                 best = (float(pitch), float(height))
-    return replace(mount, pitch_deg=best[0], camera_height_m=best[1], valid=True)
+    rms = float(np.sqrt(best_err / len(markers))) if np.isfinite(best_err) else float("inf")
+    fitted = replace(mount, pitch_deg=best[0], camera_height_m=best[1])
+    if rms <= max_residual_px:
+        fitted = replace(fitted, valid=True)
+    return fitted
 
 
 def should_mark_passed(tr: TrackInternal, dist: float | None, prev_dist: float | None, near_m: float) -> bool:
-    bump = tr.semantic in {SemanticType.POTHOLE, SemanticType.SPEED_BUMP} or (
-        tr.semantic == SemanticType.MANHOLE_COVER and tr.geometry == GeometryType.CONCAVE
-    )
+    bump = is_bump_track(tr.semantic, tr.geometry)
     if bump and tr.state not in {LifecycleState.CONFIRMED, LifecycleState.ALERTED}:
         return False
     if dist is None:

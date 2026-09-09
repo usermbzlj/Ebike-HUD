@@ -173,6 +173,9 @@ def main(argv: list[str] | None = None) -> int:
     ml.add_argument("raw")
     ml.add_argument("--severity", default="")
 
+    xc = sub.add_parser("export-android-config", help="write android assets/rpar.defaults.json from YAML")
+    xc.add_argument("--dest", default="", help="optional output path")
+
     ia = sub.add_parser("impact-align", help="M5: align confirmed tracks to future IMU (never alerts)")
     ia.add_argument("session")
     ia.add_argument("--out", default="artifacts/impact_align.json")
@@ -331,6 +334,13 @@ def main(argv: list[str] | None = None) -> int:
         from rpar.ml.labelmap import map_record
 
         print(json.dumps(map_record(args.source, args.raw, args.severity or None), indent=2, ensure_ascii=False))
+        return 0
+    if args.cmd == "export-android-config":
+        from rpar.config import export_android_config, load_config
+
+        dest = Path(args.dest) if args.dest else None
+        path = export_android_config(load_config(), dest)
+        print(path)
         return 0
     if args.cmd == "impact-align":
         from rpar.impact import write_impact_report

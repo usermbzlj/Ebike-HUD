@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ride_bg">#07080A</color>
+    <color name="ride_accent">#3DDC97</color>
+    <color name="ride_rec">#E24B4B</color>
+</resources>

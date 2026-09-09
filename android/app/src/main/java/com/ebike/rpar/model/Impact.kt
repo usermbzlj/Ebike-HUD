@@ -15,6 +15,8 @@ data class FutureImpactSeed(
 data class AccelZ(
     val timestampNs: Long,
     val z: Double,
+    val x: Double = 0.0,
+    val y: Double = 0.0,
 )
 
 data class FutureImpactRow(
@@ -30,10 +32,28 @@ data class FutureImpactRow(
     val expectedPassS: Double?,
 )
 
+fun verticalResidual(
+    accel: DoubleArray,
+    gravityXyz: DoubleArray? = null,
+    gravity: Double = 9.81,
+): Double {
+    if (accel.size < 3) return 0.0
+    if (gravityXyz != null && gravityXyz.size >= 3) {
+        val n = kotlin.math.sqrt(gravityXyz[0] * gravityXyz[0] + gravityXyz[1] * gravityXyz[1] + gravityXyz[2] * gravityXyz[2])
+        if (n > 1.0) {
+            val along = (accel[0] * gravityXyz[0] + accel[1] * gravityXyz[1] + accel[2] * gravityXyz[2]) / n
+            return kotlin.math.abs(along - n)
+        }
+    }
+    val mag = kotlin.math.sqrt(accel[0] * accel[0] + accel[1] * accel[1] + accel[2] * accel[2])
+    return kotlin.math.abs(mag - gravity)
+}
+
 fun estimateImpactScore(
     linearAccel: DoubleArray?,
     speedMps: Double?,
     distanceM: Double?,
+    gravityXyz: DoubleArray? = null,
     gravity: Double = 9.81,
     minSpeedMps: Double = 2.0,
     nearM: Double = 6.0,
@@ -41,7 +61,7 @@ fun estimateImpactScore(
 ): Double? {
     if (linearAccel == null || linearAccel.size < 3 || speedMps == null || speedMps < minSpeedMps) return null
     if (distanceM == null || distanceM > nearM) return null
-    val az = kotlin.math.abs(linearAccel[2] - gravity)
+    val az = verticalResidual(linearAccel, gravityXyz, gravity)
     if (az < spikeG) return null
     return (az / 12.0).coerceAtMost(1.0)
 }
@@ -90,7 +110,7 @@ fun alignTracksToFutureImpact(
         val zs = ArrayList<Double>()
         for (s in sorted) {
             if (s.timestampNs in startNs..endNs) {
-                zs.add(kotlin.math.abs(s.z - gravity))
+                zs.add(verticalResidual(doubleArrayOf(s.x, s.y, s.z), gravity = gravity))
             }
         }
         var peak = 0.0

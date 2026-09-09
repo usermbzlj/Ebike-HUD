@@ -328,6 +328,8 @@ class PerceptionView:
     input_near: tuple[int, int] = (640, 480)
     road_polygon: list[tuple[float, float]] = field(default_factory=list)
     occluded_polygons: list[list[tuple[float, float]]] = field(default_factory=list)
+    # Wall-clock time of one pipeline step (quality + tracking + policy), p95 over recent frames.
+    loop_p95_ms: float = 0.0
 
 
 @dataclass(slots=True)

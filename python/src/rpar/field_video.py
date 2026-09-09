@@ -300,19 +300,28 @@ def m2_clip_gates(clip: dict[str, Any]) -> dict[str, Any]:
     n_solid = max(0, n_conf - n_info - n_bump)
     road_share = float(run.get("road_frame_share") or 0.0)
     per_min = float(run.get("confirmed_per_min") or 0.0)
-    is_night = alias == "night_25013"
-    is_day = alias == "day_25007"
+    infer_fps = float(run.get("mean_infer_fps") or 0.0)
+    infer_n = int(run.get("infer_count") or 0)
+    is_night = alias == "night_25013" or lighting == "night"
+    is_day = alias == "day_25007" or lighting == "day"
+    spec_fp = 1.0 if is_night else (0.5 if is_day else None)
     checks: dict[str, bool] = {
         "overlay_ok": overlay_ok,
         "has_frames": frames > 0,
     }
     if is_night:
+        # Skipping every infer frame and reporting "0 FP" is not a night pass.
+        if "infer_count" in run or "mean_infer_fps" in run:
+            checks["night_did_infer"] = infer_n > 0 or infer_fps > 0.25
         checks["night_no_solid_damage"] = n_solid == 0 and n_rough == 0
         checks["night_no_rough_broken"] = n_rough == 0
+        solid_per_min = per_min * (n_solid / n_conf) if n_conf else 0.0
+        checks["night_no_spam"] = solid_per_min <= 1.0
         if n_bump == 0:
             checks["night_no_alerts"] = n_alerts == 0
     if is_day:
         checks["day_road_polygon"] = road_share >= 0.05
+        checks["day_not_spam"] = spec_fp is None or per_min <= spec_fp * 4.0
     passed = all(checks.values()) if checks else False
     return {
         "alias": alias,
@@ -328,8 +337,10 @@ def m2_clip_gates(clip: dict[str, Any]) -> dict[str, Any]:
         "road_frame_share": road_share,
         "first_confirm_median_m": first_med,
         "first_confirm_is_gt": bool(run.get("first_confirm_is_gt")),
-        "spec_solid_fp_per_min": 1.0 if is_night else (0.5 if is_day else None),
-        "note": "Night solid-damage==0 is an asphalt-noise proxy; info-layer puddle/gravel is allowed. YOLO-World bump confirms/alerts are allowed. Predicted first-confirm is not geometric GT.",
+        "spec_solid_fp_per_min": spec_fp,
+        "mean_infer_fps": infer_fps,
+        "infer_count": infer_n,
+        "note": "Night must actually infer. Spam (confirmed/min) fails the gate. Predicted first-confirm is not geometric GT.",
     }
 
 

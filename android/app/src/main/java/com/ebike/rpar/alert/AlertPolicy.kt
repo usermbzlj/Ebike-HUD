@@ -111,14 +111,8 @@ class AlertPolicy(val cfg: AlertConfig, var enabled: Boolean = true) {
         if (obj.severity.code >= 0 && obj.severity.code < cfg.minSeverity && obj.severity != Severity.UNKNOWN) {
             return reject("severity_too_low")
         }
-        if (obj.visibilityConfidence < cfg.minVisibility &&
-            !EnumCopy.isBumpHazard(obj.semanticType, obj.geometryType, obj.objectState)
-        ) return reject("visibility_gate")
-        if (obj.effectiveConfidence < cfg.minEffective) {
-            val bumpEarly = EnumCopy.isBumpHazard(obj.semanticType, obj.geometryType, obj.objectState) &&
-                obj.modelConfidence >= 0.08
-            if (!bumpEarly) return reject("effective_gate")
-        }
+        if (obj.visibilityConfidence < cfg.minVisibility) return reject("visibility_gate")
+        if (obj.effectiveConfidence < cfg.minEffective) return reject("effective_gate")
         if (obj.pathRelevance < cfg.minPathRelevance) return reject("off_corridor")
         if (obj.direction == Direction.UNKNOWN) return reject("direction_unknown")
 
@@ -129,8 +123,7 @@ class AlertPolicy(val cfg: AlertConfig, var enabled: Boolean = true) {
         if (bump) urg = maxOf(urg, 0.65)
         var suppression = 1.0
         if (obj.semanticType == SemanticType.UNKNOWN_ANOMALY) suppression *= 0.55
-        var score = vs * sev * obj.pathRelevance * urg * suppression
-        if (bump) score = maxOf(score, obj.modelConfidence * obj.pathRelevance)
+        val score = vs * sev * obj.pathRelevance * urg * suppression
         val threshold = if (bump) cfg.bumpScoreThreshold else cfg.scoreThreshold
         snapshot.put("visual_score", vs)
         snapshot.put("severity_score", sev)

@@ -74,11 +74,28 @@ def compose_phrase(
         kind = bump_kind(semantic, geometry, state, severity)
     else:
         kind = SEMANTIC_TTS.get(semantic, "路面异常")
-    phrase = f"{heading}{kind}"
-    for bad in ALERT_FORBIDDEN_PHRASES:
-        if bad in phrase:
-            raise ValueError(f"forbidden advisory text: {bad}")
-    return phrase
+    return f"{heading}{kind}"
+
+
+def _validate_phrase_tables() -> None:
+    """ALT-010: no steering / braking advice can ever be spoken. Checked once at import."""
+    for text in [*DIRECTION_TTS.values(), *SEMANTIC_TTS.values(), "路面异常", "大坑", "减速带", "下沉井盖"]:
+        for bad in ALERT_FORBIDDEN_PHRASES:
+            if bad in text:
+                raise RuntimeError(f"forbidden advisory text in TTS table: {bad}")
+
+
+_validate_phrase_tables()
+
+
+def severity_weight(sev: Severity, weights: tuple[float, ...]) -> float:
+    """Risk weight for a Severity from config `alert.severity_weights` (none, light, medium, heavy, unknown)."""
+    idx = int(sev)
+    if idx < 0:
+        idx = 4
+    if idx >= len(weights):
+        return float(weights[-1]) if weights else 0.22
+    return float(weights[idx])
 
 
 @dataclass
@@ -163,13 +180,9 @@ class AlertPolicy:
             return reject("normal_or_flat")
         if int(obj.severity) >= 0 and int(obj.severity) < self.cfg.min_severity and obj.severity != Severity.UNKNOWN:
             return reject("severity_too_low")
-        if obj.visibility_confidence < self.cfg.min_visibility and not is_bump_hazard(
-            obj.semantic_type, obj.geometry_type, obj.object_state
-        ):
+        if obj.visibility_confidence < self.cfg.min_visibility:
             return reject("visibility_gate")
-        if obj.effective_confidence < self.cfg.min_effective and not (
-            is_bump_hazard(obj.semantic_type, obj.geometry_type, obj.object_state) and obj.model_confidence >= 0.08
-        ):
+        if obj.effective_confidence < self.cfg.min_effective:
             return reject("effective_gate")
         if obj.path_relevance < self.cfg.min_path_relevance:
             return reject("off_corridor")
@@ -186,13 +199,13 @@ class AlertPolicy:
         urg = urgency_from_ttc(obj.ttc_s)
         bump = is_bump_hazard(obj.semantic_type, obj.geometry_type, obj.object_state)
         if bump:
+            # Bumps are the primary hazard class: never let a missing TTC starve them,
+            # but they still have to clear every gate above and the (lower) bump threshold.
             urg = max(urg, 0.65)
         suppression = 1.0
         if obj.semantic_type == SemanticType.UNKNOWN_ANOMALY:
             suppression *= 0.55
         score = vs * sev * obj.path_relevance * urg * suppression
-        if bump:
-            score = max(score, float(obj.model_confidence) * obj.path_relevance)
         threshold = self.cfg.bump_score_threshold if bump else self.cfg.score_threshold
         snapshot["visual_score"] = vs
         snapshot["severity_score"] = sev

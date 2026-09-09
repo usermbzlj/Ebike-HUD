@@ -134,7 +134,7 @@ STATE = DemoState()
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Road Perception AR Console", version="0.1.0")
+    app = FastAPI(title="Road Perception AR Console", version="0.2.0")
     if STATIC.exists():
         app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
@@ -147,7 +147,37 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:
-        return {"ok": True, "service": "rpar-console"}
+        return {"ok": True, "service": "rpar-console", "version": "0.2.0"}
+
+    @app.get("/api/sessions")
+    def list_sessions() -> dict[str, Any]:
+        roots = [ART / "sessions", ROOT / "artifacts" / "sessions"]
+        found: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for root in roots:
+            if not root.is_dir():
+                continue
+            for p in sorted(root.glob("session_*"), reverse=True):
+                if not p.is_dir() or p.name in seen:
+                    continue
+                seen.add(p.name)
+                man = p / "manifest.json"
+                mode = None
+                if man.exists():
+                    try:
+                        mode = json.loads(man.read_text(encoding="utf-8")).get("run_mode")
+                    except Exception:
+                        mode = None
+                found.append(
+                    {
+                        "name": p.name,
+                        "path": str(p),
+                        "run_mode": mode,
+                        "has_video": any((p / "video").glob("*.mp4")) if (p / "video").is_dir() else False,
+                        "has_imu": (p / "imu" / "accelerometer.jsonl").exists(),
+                    }
+                )
+        return {"sessions": found[:40], "capture_app": "android/capture 骑行采集 0.2"}
 
     @app.post("/api/reset")
     def reset(night: bool = False) -> dict[str, Any]:

@@ -316,7 +316,7 @@ class CameraController(
         onFrame?.invoke(
             SynchronizedFrame(
                 meta = meta,
-                bitmap = null,
+                bitmap = yuvToPreviewBitmap(y),
                 yuv = y,
                 pose = null,
                 angularVelocity = null,
@@ -408,10 +408,8 @@ class CameraController(
         val physical = backs.filter { (it.second.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: intArrayOf())
             .none { cap -> cap == CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA } }
         val pool = physical.ifEmpty { backs }
-        val chosen = pool.minByOrNull { (_, ch) ->
-            val focals = ch.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS) ?: floatArrayOf(4f)
-            focals.minOrNull() ?: 4f
-        } ?: pool.first()
+        val want = cfg.preferredHfovDeg
+        val chosen = pool.minByOrNull { (_, ch) -> kotlin.math.abs(estimateHfovDeg(ch) - want) } ?: pool.first()
         lockedPhysical = chosen.first
         return chosen.first
     }
@@ -440,5 +438,13 @@ class CameraController(
     companion object {
         private const val TAG = "CameraController"
         init { Log.d(TAG, "camera2") }
+
+        fun estimateHfovDeg(ch: CameraCharacteristics): Double {
+            val focals = ch.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS) ?: floatArrayOf(4.5f)
+            val sensor = ch.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+            val f = (focals.maxOrNull() ?: 4.5f).toDouble()
+            val w = sensor?.width?.toDouble() ?: 6.4
+            return Math.toDegrees(2.0 * kotlin.math.atan(w / (2.0 * f)))
+        }
     }
 }

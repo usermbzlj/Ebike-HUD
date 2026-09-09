@@ -88,30 +88,21 @@ def spec_attrs(yolo_class: str, raw_prompt: str = "", *, sunken: bool = False) -
     return SemanticType.UNKNOWN_ANOMALY, GeometryType.UNKNOWN, ObjectState.UNKNOWN, Severity.UNKNOWN
 
 
-def refine_manhole_geometry(bgr: np.ndarray, bbox: tuple[float, float, float, float]) -> tuple[GeometryType, ObjectState, Severity]:
-    """Sunken cover: disk whose interior is darker than the rim. Flat covers stay info-only."""
-    h_img, w_img = bgr.shape[:2]
-    x0 = int(np.clip(np.floor(bbox[0]), 0, w_img - 1))
-    y0 = int(np.clip(np.floor(bbox[1]), 0, h_img - 1))
-    x1 = int(np.clip(np.ceil(bbox[2]), x0 + 1, w_img))
-    y1 = int(np.clip(np.ceil(bbox[3]), y0 + 1, h_img))
-    crop = bgr[y0:y1, x0:x1]
-    if crop.size == 0:
+def refine_manhole_geometry(
+    bgr: np.ndarray, bbox: tuple[float, float, float, float], sunken_delta: float = 12.0
+) -> tuple[GeometryType, ObjectState, Severity]:
+    """Sunken cover: disk whose interior is darker than the rim. Flat covers stay info-only.
+
+    Shares `manhole_is_sunken` with the heuristic engine so both paths agree. A settled cover
+    is MEDIUM, not HEAVY: a brightness test cannot measure depth.
+    """
+    from rpar.perception import manhole_is_sunken
+
+    if bgr.size == 0:
         return GeometryType.UNKNOWN, ObjectState.UNKNOWN, Severity.UNKNOWN
-    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
-    hh, ww = gray.shape[:2]
-    cy, cx = hh / 2.0, ww / 2.0
-    inner_r = max(2.0, 0.28 * min(hh, ww))
-    yy, xx = np.ogrid[:hh, :ww]
-    dist2 = (yy - cy) ** 2 + (xx - cx) ** 2
-    inner = dist2 <= inner_r ** 2
-    ring = (dist2 <= (inner_r * 2.05) ** 2) & ~inner
-    if not inner.any() or not ring.any():
-        return GeometryType.FLAT, ObjectState.NORMAL, Severity.NONE
-    di = float(gray[inner].mean())
-    dr = float(gray[ring].mean())
-    if di < dr - 10.0:
-        return GeometryType.CONCAVE, ObjectState.ABNORMAL, Severity.HEAVY
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY) if bgr.ndim == 3 else bgr
+    if manhole_is_sunken(gray, bbox, sunken_delta):
+        return GeometryType.CONCAVE, ObjectState.ABNORMAL, Severity.MEDIUM
     return GeometryType.FLAT, ObjectState.NORMAL, Severity.NONE
 
 

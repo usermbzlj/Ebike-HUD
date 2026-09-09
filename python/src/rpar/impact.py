@@ -1,4 +1,10 @@
-"""M5 impact interface: same-frame spike plus visual→future IMU alignment. Never used for alerts."""
+"""M5 impact interface: same-frame spike plus visual->future IMU alignment. Never used for alerts.
+
+The phone is mounted with its camera looking forward, so the device Z axis is roughly
+horizontal. "Vertical" acceleration therefore has to be taken along the measured gravity
+direction (TYPE_GRAVITY / rotation vector). When no gravity vector is available we fall back
+to the orientation-independent magnitude residual ``| |a| - g |``.
+"""
 
 from __future__ import annotations
 
@@ -6,11 +12,40 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from rpar import SCHEMA_VERSION
 
 RELIEF_GEOMETRIES = frozenset({"concave", "convex", "rough", "step"})
 PATCH_SEMANTICS = frozenset({"repair_patch", "road_joint"})
 _CONFIRMED = frozenset({"CONFIRMED", "ALERTED"})
+GRAVITY = 9.81
+
+
+def vertical_residual(
+    accel: tuple[float, float, float] | np.ndarray,
+    gravity_xyz: tuple[float, float, float] | np.ndarray | None = None,
+    gravity: float = GRAVITY,
+) -> float:
+    """Dynamic vertical acceleration (m/s^2, >= 0) from a raw accelerometer sample.
+
+    With a device-frame gravity vector the result is the component along "up" minus g;
+    without it we use the magnitude residual, which is orientation independent.
+    """
+    a = np.asarray(accel, dtype=np.float64).reshape(-1)[:3]
+    if gravity_xyz is not None:
+        gv = np.asarray(gravity_xyz, dtype=np.float64).reshape(-1)[:3]
+        n = float(np.linalg.norm(gv))
+        if n > 1.0:
+            return abs(float(np.dot(a, gv / n)) - n)
+    return abs(float(np.linalg.norm(a)) - gravity)
+
+
+def sample_residual(sample: dict[str, Any], gravity: float = GRAVITY) -> float:
+    """Residual for a jsonl accelerometer row. Uses xyz magnitude when present, else legacy z-g."""
+    if "x" in sample and "y" in sample:
+        return vertical_residual((float(sample.get("x") or 0.0), float(sample.get("y") or 0.0), float(sample.get("z") or 0.0)), None, gravity)
+    return abs(float(sample.get("z") or 0.0) - gravity)
 
 
 def estimate_impact_score(
@@ -18,17 +53,18 @@ def estimate_impact_score(
     speed_mps: float | None,
     distance_m: float | None,
     *,
-    gravity: float = 9.81,
+    gravity_xyz: tuple[float, float, float] | None = None,
+    gravity: float = GRAVITY,
     min_speed_mps: float = 2.0,
     near_m: float = 6.0,
     spike_g: float = 3.5,
 ) -> float | None:
-    """Return 0–1 when a vertical accel spike coincides with a near object; else None."""
+    """Return 0-1 when a vertical accel spike coincides with a near object; else None."""
     if linear_accel is None or speed_mps is None or speed_mps < min_speed_mps:
         return None
     if distance_m is None or distance_m > near_m:
         return None
-    az = abs(float(linear_accel[2]) - gravity)
+    az = vertical_residual(linear_accel, gravity_xyz, gravity)
     if az < spike_g:
         return None
     return float(min(1.0, az / 12.0))
@@ -38,8 +74,7 @@ def harvest_impact_windows(accel_samples: list[dict[str, Any]], near_track_ids: 
     """M5: IMU vertical spikes as weak-supervision windows, never as alerts."""
     out: list[dict[str, Any]] = []
     for s in accel_samples:
-        z = float(s.get("z") or 0.0)
-        az = abs(z - 9.81)
+        az = sample_residual(s)
         if az < 3.5:
             continue
         out.append(
@@ -53,12 +88,8 @@ def harvest_impact_windows(accel_samples: list[dict[str, Any]], near_track_ids: 
     return out
 
 
-def vertical_residual(z: float, gravity: float = 9.81) -> float:
-    return abs(float(z) - gravity)
-
-
 def impact_label(peak_ms2: float, speed_mps: float) -> str:
-    """Speed-normalized vertical peak → none/weak/medium/strong. Faster rides expect more vibration."""
+    """Speed-normalized vertical peak -> none/weak/medium/strong. Faster rides expect more vibration."""
     scale = max(float(speed_mps) / 10.0, 0.35)
     adj = float(peak_ms2) / scale
     if adj < 2.0:
@@ -90,7 +121,7 @@ def _window_ns(
     speed_mps: float,
     horizon_s: float,
 ) -> tuple[int, int, float | None]:
-    """Prefer the expected pass instant (distance/speed); else the 0–horizon window."""
+    """Prefer the expected pass instant (distance/speed); else the 0-horizon window."""
     if distance_m is not None and speed_mps > 0:
         t_pass = float(distance_m) / float(speed_mps)
         if 0.0 <= t_pass <= horizon_s + 0.75:
@@ -114,16 +145,18 @@ def align_tracks_to_future_impact(
     accel: list[dict[str, Any]],
     *,
     horizon_s: float = 3.0,
-    gravity: float = 9.81,
+    gravity: float = GRAVITY,
     min_speed_mps: float = 2.0,
     speed_mps: float | None = None,
 ) -> list[dict[str, Any]]:
-    """Weak-supervise each first-confirmed track with IMU in the 0–3 s (or pass) window.
+    """Weak-supervise each first-confirmed track with IMU in the 0-3 s (or pass) window.
 
-    Spec M5: visual object + speed → future impact intensity. IMU is the label, never an alert.
+    Spec M5: visual object + speed -> future impact intensity. IMU is the label, never an alert.
     """
     first = _first_confirmed(tracks)
     accel_sorted = sorted(accel, key=lambda s: int(s.get("timestamp_ns") or 0))
+    ts_arr = np.asarray([int(s.get("timestamp_ns") or 0) for s in accel_sorted], dtype=np.int64)
+    res_arr = np.asarray([sample_residual(s, gravity) for s in accel_sorted], dtype=np.float64)
     default_speed = float(speed_mps) if speed_mps is not None else 0.0
     rows: list[dict[str, Any]] = []
     for tid, t in first.items():
@@ -137,11 +170,12 @@ def align_tracks_to_future_impact(
         dist = t.get("distance_m")
         dist_f = float(dist) if dist is not None else None
         start_ns, end_ns, t_pass = _window_ns(t0, dist_f, spd, horizon_s)
-        zs: list[float] = []
-        for s in accel_sorted:
-            ts = int(s.get("timestamp_ns") or 0)
-            if start_ns <= ts <= end_ns:
-                zs.append(vertical_residual(float(s.get("z") or 0.0), gravity))
+        if ts_arr.size:
+            lo = int(np.searchsorted(ts_arr, start_ns, side="left"))
+            hi = int(np.searchsorted(ts_arr, end_ns, side="right"))
+            zs = res_arr[lo:hi].tolist()
+        else:
+            zs = []
         peak, rms = _stats(zs)
         geom = str(t.get("geometry_type") or "unknown")
         sem = str(t.get("semantic_type") or "unknown_anomaly")
@@ -249,7 +283,7 @@ def synthetic_future_impact_proof(*, duration_s: float = 4.0, horizon_s: float =
     for k in range(n):
         t = k / 200.0
         _, acc = sim.motion_at(t)
-        accel.append({"timestamp_ns": t0 + int(t * 1e9), "z": acc[2]})
+        accel.append({"timestamp_ns": t0 + int(t * 1e9), "x": acc[0], "y": acc[1], "z": acc[2]})
     rows = align_tracks_to_future_impact(tracks, accel, horizon_s=horizon_s, speed_mps=sim.sim.speed_mps)
     sep = separates_relief_from_patch(rows)
     return {

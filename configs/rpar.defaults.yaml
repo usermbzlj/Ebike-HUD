@@ -1,7 +1,11 @@
-schema_version: "1.0"
+# Road Perception AR - versioned runtime configuration (MOD-005).
+# Single source of truth for desktop AND phone. After editing run
+#   python -m rpar.apps.cli export-android-config
+# to regenerate android/app/src/main/assets/rpar.defaults.json (a test enforces parity).
+schema_version: "1.1"
 default_mount_id: left_handlebar_v1
 quality:
-  laplacian_usable: 18.0
+  laplacian_usable: 18.0          # exposure-normalised Laplacian variance on the 480 px analysis frame
   motion_blur_block: 0.62
   glare_block: 0.45
   underexposure_block: 0.72
@@ -11,7 +15,25 @@ quality:
   buffer_seconds: 0.5
   tile_cols: 8
   tile_rows: 6
-  lens_drop_blob_min: 12
+  occlusion_status_ratio: 0.08    # occluder polygons covering this frame share -> HUD "前方道路被遮挡"
+  occlusion_block_ratio: 0.40     # above this share no new tracks spawn (appendix B)
+  lens_static_seconds: 2.0        # motionless tiles in a moving scene for this long = lens contamination
+  lens_static_tiles: 3
+  bad_streak_limited_s: 0.45
+perception:
+  night_road_luma: 100.0          # asphalt luma where the night score's luma term is 0.5 (AE keeps night roads bright)
+  night_score_threshold: 0.6      # luma + streetlight colour-cast + dark-sky cues >= this -> conservative night rules
+  pothole_min_area_px: 220.0      # at 1080p; scaled with ROI resolution
+  pothole_min_area_night_px: 1400.0
+  pothole_circularity: 0.62
+  anomaly_contrast: 12.0          # dark blob must be this much darker than its surround to count at all
+  pothole_contrast: 45.0          # shadowed interior; fresh repair patches (~30-40) stay unknown_anomaly
+  pothole_contrast_night: 22.0
+  manhole_sunken_delta: 12.0      # cover centre darker than rim by this many grey levels -> settled
+  occluder_min_frac: 0.012
+  far_roi: [0.18, 0.32, 0.82, 0.62]
+  near_roi: [0.08, 0.50, 0.92, 1.00]
+  near_max_width: 960
 tracking:
   confirm_window_s: 0.40
   min_confirm_hits: 3
@@ -29,10 +51,14 @@ geometry:
   across_min_width_m: 1.6
   near_boundary_m: 2.2
   far_display_m: 30.0
+  distance_mae_near_m: 2.5
+  distance_mae_far_m: 5.0
   min_speed_for_ttc_mps: 2.0
   pitch_health_deg: 8.0
   roll_health_deg: 10.0
   hide_distance_if_invalid: true
+  contact_sigma_px: 4.0
+  relevance_horizon_m: 40.0
 alert:
   enabled_default: true
   score_threshold: 0.62
@@ -44,7 +70,8 @@ alert:
   min_effective: 0.48
   realert_severity_jump: 1
   pause_on_degraded: true
-  bump_score_threshold: 0.08
+  bump_score_threshold: 0.22      # confirmed MEDIUM pothole in corridor ~0.22-0.35; low-conf/off-corridor < 0.2
+  severity_weights: [0.05, 0.3, 0.7, 1.0, 0.22]   # none, light, medium, heavy, unknown
 render:
   riding_max_labels: 5
   ar_target_fps: 60
@@ -67,6 +94,12 @@ camera:
   segment_seconds: 300
   bitrate_mbps: 25.0
   lock_physical_camera: true
+  preferred_hfov_deg: 75.0        # pick the rear camera closest to this field of view (main, not ultra-wide)
+thermal:
+  warn_c: 42.0
+  drop_far_roi_c: 43.0
+  drop_infer_hz_c: 45.0
+  slow_factor: 0.7
 runtime:
   infer_fps: 12.0
   quality_fps: 30.0

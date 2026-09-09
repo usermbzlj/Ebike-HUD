@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "RoadPerceptionAR"
 include(":app")
+include(":capture")

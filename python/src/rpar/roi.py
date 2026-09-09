@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import numpy as np
 
-# Normalized crop of the driving corridor: far keeps density at 15–30 m; near is contour/severity.
+# Normalized crop of the driving corridor: far keeps density at 15-30 m; near is contour/severity.
+# `PerceptionConfig.far_roi` / `near_roi` override these defaults at runtime.
 FAR = (0.18, 0.32, 0.82, 0.62)
 NEAR = (0.08, 0.50, 0.92, 1.00)
 
+Box = tuple[float, float, float, float]
 
-def crop_xyxy(w: int, h: int, box: tuple[float, float, float, float]) -> tuple[int, int, int, int]:
+
+def crop_xyxy(w: int, h: int, box: Box) -> tuple[int, int, int, int]:
     x0, y0, x1, y1 = box
     ix0 = int(w * x0)
     iy0 = int(h * y0)
@@ -18,7 +21,7 @@ def crop_xyxy(w: int, h: int, box: tuple[float, float, float, float]) -> tuple[i
     return ix0, iy0, min(w, ix1), min(h, iy1)
 
 
-def roi_polygon(w: int, h: int, box: tuple[float, float, float, float]) -> list[tuple[float, float]]:
+def roi_polygon(w: int, h: int, box: Box) -> list[tuple[float, float]]:
     x0, y0, x1, y1 = box
     return [
         (float(w * x0), float(h * y0)),
@@ -28,12 +31,12 @@ def roi_polygon(w: int, h: int, box: tuple[float, float, float, float]) -> list[
     ]
 
 
-def far_polygon(w: int, h: int) -> list[tuple[float, float]]:
-    return roi_polygon(w, h, FAR)
+def far_polygon(w: int, h: int, box: Box = FAR) -> list[tuple[float, float]]:
+    return roi_polygon(w, h, tuple(box))
 
 
-def near_polygon(w: int, h: int) -> list[tuple[float, float]]:
-    return roi_polygon(w, h, NEAR)
+def near_polygon(w: int, h: int, box: Box = NEAR) -> list[tuple[float, float]]:
+    return roi_polygon(w, h, tuple(box))
 
 
 def dual_scale_feature_vector(

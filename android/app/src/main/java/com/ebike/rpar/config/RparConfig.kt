@@ -16,6 +16,27 @@ data class QualityConfig(
     val tileCols: Int = 8,
     val tileRows: Int = 6,
     val lensDropBlobMin: Int = 12,
+    val occlusionStatusRatio: Double = 0.08,
+    val occlusionBlockRatio: Double = 0.40,
+    val lensStaticSeconds: Double = 2.0,
+    val lensStaticTiles: Int = 3,
+    val badStreakLimitedS: Double = 0.45,
+)
+
+data class PerceptionConfig(
+    val nightRoadLuma: Double = 100.0,
+    val nightScoreThreshold: Double = 0.6,
+    val potholeMinAreaPx: Double = 220.0,
+    val potholeMinAreaNightPx: Double = 1400.0,
+    val potholeCircularity: Double = 0.62,
+    val anomalyContrast: Double = 12.0,
+    val potholeContrast: Double = 45.0,
+    val potholeContrastNight: Double = 22.0,
+    val manholeSunkenDelta: Double = 12.0,
+    val occluderMinFrac: Double = 0.012,
+    val farRoi: DoubleArray = doubleArrayOf(0.18, 0.32, 0.82, 0.62),
+    val nearRoi: DoubleArray = doubleArrayOf(0.08, 0.50, 0.92, 1.00),
+    val nearMaxWidth: Int = 960,
 )
 
 data class TrackingConfig(
@@ -43,6 +64,8 @@ data class GeometryConfig(
     val pitchHealthDeg: Double = 8.0,
     val rollHealthDeg: Double = 10.0,
     val hideDistanceIfInvalid: Boolean = true,
+    val contactSigmaPx: Double = 4.0,
+    val relevanceHorizonM: Double = 40.0,
 )
 
 data class AlertConfig(
@@ -56,7 +79,7 @@ data class AlertConfig(
     val minEffective: Double = 0.48,
     val realertSeverityJump: Int = 1,
     val pauseOnDegraded: Boolean = true,
-    val bumpScoreThreshold: Double = 0.08,
+    val bumpScoreThreshold: Double = 0.22,
 )
 
 data class RenderConfig(
@@ -83,6 +106,14 @@ data class CameraConfig(
     val segmentSeconds: Int = 300,
     val bitrateMbps: Double = 25.0,
     val lockPhysicalCamera: Boolean = true,
+    val preferredHfovDeg: Double = 75.0,
+)
+
+data class ThermalConfig(
+    val warnC: Double = 42.0,
+    val dropFarRoiC: Double = 43.0,
+    val dropInferHzC: Double = 45.0,
+    val slowFactor: Double = 0.7,
 )
 
 data class RuntimeConfig(
@@ -105,13 +136,15 @@ data class ModelPackageRef(
 )
 
 data class RparConfig(
-    val schemaVersion: String = "1.0",
+    val schemaVersion: String = "1.1",
     val quality: QualityConfig = QualityConfig(),
+    val perception: PerceptionConfig = PerceptionConfig(),
     val tracking: TrackingConfig = TrackingConfig(),
     val geometry: GeometryConfig = GeometryConfig(),
     val alert: AlertConfig = AlertConfig(),
     val render: RenderConfig = RenderConfig(),
     val camera: CameraConfig = CameraConfig(),
+    val thermal: ThermalConfig = ThermalConfig(),
     val runtime: RuntimeConfig = RuntimeConfig(),
     val model: ModelPackageRef = ModelPackageRef(),
     val defaultMountId: String = "left_handlebar_v1",
@@ -231,6 +264,24 @@ data class RparConfig(
                     tileCols = q.optInt("tile_cols", 8),
                     tileRows = q.optInt("tile_rows", 6),
                     lensDropBlobMin = q.optInt("lens_drop_blob_min", 12),
+                    occlusionStatusRatio = q.optDouble("occlusion_status_ratio", 0.08),
+                    occlusionBlockRatio = q.optDouble("occlusion_block_ratio", 0.40),
+                    lensStaticSeconds = q.optDouble("lens_static_seconds", 2.0),
+                    lensStaticTiles = q.optInt("lens_static_tiles", 3),
+                    badStreakLimitedS = q.optDouble("bad_streak_limited_s", 0.45),
+                ),
+                perception = PerceptionConfig(
+                    nightRoadLuma = (root.optJSONObject("perception") ?: JSONObject()).optDouble("night_road_luma", 100.0),
+                    nightScoreThreshold = (root.optJSONObject("perception") ?: JSONObject()).optDouble("night_score_threshold", 0.6),
+                    potholeMinAreaPx = (root.optJSONObject("perception") ?: JSONObject()).optDouble("pothole_min_area_px", 220.0),
+                    potholeMinAreaNightPx = (root.optJSONObject("perception") ?: JSONObject()).optDouble("pothole_min_area_night_px", 1400.0),
+                    potholeCircularity = (root.optJSONObject("perception") ?: JSONObject()).optDouble("pothole_circularity", 0.62),
+                    anomalyContrast = (root.optJSONObject("perception") ?: JSONObject()).optDouble("anomaly_contrast", 12.0),
+                    potholeContrast = (root.optJSONObject("perception") ?: JSONObject()).optDouble("pothole_contrast", 45.0),
+                    potholeContrastNight = (root.optJSONObject("perception") ?: JSONObject()).optDouble("pothole_contrast_night", 22.0),
+                    manholeSunkenDelta = (root.optJSONObject("perception") ?: JSONObject()).optDouble("manhole_sunken_delta", 12.0),
+                    occluderMinFrac = (root.optJSONObject("perception") ?: JSONObject()).optDouble("occluder_min_frac", 0.012),
+                    nearMaxWidth = (root.optJSONObject("perception") ?: JSONObject()).optInt("near_max_width", 960),
                 ),
                 tracking = TrackingConfig(
                     confirmWindowS = t.optDouble("confirm_window_s", 0.40),
@@ -254,6 +305,8 @@ data class RparConfig(
                     pitchHealthDeg = g.optDouble("pitch_health_deg", 8.0),
                     rollHealthDeg = g.optDouble("roll_health_deg", 10.0),
                     hideDistanceIfInvalid = g.optBoolean("hide_distance_if_invalid", true),
+                    contactSigmaPx = g.optDouble("contact_sigma_px", 4.0),
+                    relevanceHorizonM = g.optDouble("relevance_horizon_m", 40.0),
                 ),
                 alert = AlertConfig(
                     enabledDefault = a.optBoolean("enabled_default", true),
@@ -266,7 +319,7 @@ data class RparConfig(
                     minEffective = a.optDouble("min_effective", 0.48),
                     realertSeverityJump = a.optInt("realert_severity_jump", 1),
                     pauseOnDegraded = a.optBoolean("pause_on_degraded", true),
-                    bumpScoreThreshold = a.optDouble("bump_score_threshold", 0.08),
+                    bumpScoreThreshold = a.optDouble("bump_score_threshold", 0.22),
                 ),
                 render = RenderConfig(
                     ridingMaxLabels = r.optInt("riding_max_labels", 5),
@@ -291,6 +344,13 @@ data class RparConfig(
                     segmentSeconds = c.optInt("segment_seconds", 300),
                     bitrateMbps = c.optDouble("bitrate_mbps", 25.0),
                     lockPhysicalCamera = c.optBoolean("lock_physical_camera", true),
+                    preferredHfovDeg = c.optDouble("preferred_hfov_deg", 75.0),
+                ),
+                thermal = ThermalConfig(
+                    warnC = (root.optJSONObject("thermal") ?: JSONObject()).optDouble("warn_c", 42.0),
+                    dropFarRoiC = (root.optJSONObject("thermal") ?: JSONObject()).optDouble("drop_far_roi_c", 43.0),
+                    dropInferHzC = (root.optJSONObject("thermal") ?: JSONObject()).optDouble("drop_infer_hz_c", 45.0),
+                    slowFactor = (root.optJSONObject("thermal") ?: JSONObject()).optDouble("slow_factor", 0.7),
                 ),
                 runtime = RuntimeConfig(
                     inferFps = rt.optDouble("infer_fps", 12.0),

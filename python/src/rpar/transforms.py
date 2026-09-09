@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
 from rpar.models import Intrinsics, MountProfile
@@ -72,63 +74,8 @@ def project_vehicle_point(p_vehicle: np.ndarray, mount: MountProfile, k: Intrins
     return np.array([uv[0] / uv[2], uv[1] / uv[2]], dtype=np.float64)
 
 
-def ground_homography(mount: MountProfile, k: Intrinsics) -> np.ndarray:
-    """H maps ground (X right, Y forward, Z=0) meters in vehicle frame to pixels."""
-    pts_m = np.array(
-        [
-            [-2.0, 4.0, 0.0],
-            [2.0, 4.0, 0.0],
-            [-3.5, 18.0, 0.0],
-            [3.5, 18.0, 0.0],
-            [-1.2, 8.0, 0.0],
-            [1.2, 8.0, 0.0],
-            [0.0, 12.0, 0.0],
-            [0.0, 6.0, 0.0],
-        ],
-        dtype=np.float64,
-    )
-    src = []
-    dst = []
-    for p in pts_m:
-        uv = project_vehicle_point(p, mount, k)
-        if uv is None:
-            continue
-        src.append(p[:2])
-        dst.append(uv)
-    src_a = np.asarray(src)
-    dst_a = np.asarray(dst)
-    return _dlt_homography(src_a, dst_a)
-
-
-def _dlt_homography(src: np.ndarray, dst: np.ndarray) -> np.ndarray:
-    if len(src) < 4:
-        raise ValueError("need 4 point pairs")
-    a = []
-    for (x, y), (u, v) in zip(src, dst):
-        a.append([x, y, 1, 0, 0, 0, -u * x, -u * y, -u])
-        a.append([0, 0, 0, x, y, 1, -v * x, -v * y, -v])
-    _, _, vt = np.linalg.svd(np.asarray(a, dtype=np.float64))
-    h = vt[-1].reshape(3, 3)
-    if abs(h[2, 2]) > 1e-12:
-        h = h / h[2, 2]
-    return h
-
-
-def apply_h(h: np.ndarray, xy: np.ndarray) -> np.ndarray:
-    pts = np.atleast_2d(xy)
-    ones = np.ones((pts.shape[0], 1))
-    ph = np.hstack([pts, ones]) @ h.T
-    w = np.clip(ph[:, 2:3], 1e-9, None)
-    return ph[:, :2] / w
-
-
-def invert_h(h: np.ndarray) -> np.ndarray:
-    inv = np.linalg.inv(h)
-    return inv / inv[2, 2]
-
-
 def pixel_to_ground(uv: np.ndarray, mount: MountProfile, k: Intrinsics) -> np.ndarray | None:
-    """Ray–plane intersection on vehicle Z=0. Result is already vehicle-centerline XY (GEO-006)."""
+    """Ray-plane intersection on vehicle Z=0. Result is already vehicle-centerline XY (GEO-006)."""
     x = (float(uv[0]) - k.cx) / k.fx
     y = (float(uv[1]) - k.cy) / k.fy
     ray_cam = np.array([x, y, 1.0], dtype=np.float64)
@@ -160,10 +107,6 @@ def compensate_left_handlebar(xy_cam_ground: np.ndarray, mount: MountProfile) ->
     return np.array([xy_cam_ground[0] - mount.lateral_offset_m, xy_cam_ground[1]], dtype=np.float64)
 
 
-def image_to_normalized(uv: np.ndarray, width: int, height: int) -> np.ndarray:
-    return np.array([uv[0] / width, uv[1] / height], dtype=np.float64)
-
-
 def rotate_points_about_principal(points: np.ndarray, cx: float, cy: float, roll_rad: float) -> np.ndarray:
     c, s = np.cos(roll_rad), np.sin(roll_rad)
     r = np.array([[c, -s], [s, c]], dtype=np.float64)
@@ -182,7 +125,11 @@ def chessboard_overlay_error_px(
     k: Intrinsics | None = None,
     n: int = 5,
 ) -> float:
-    """CAM-009: shared transform chain error on a ground grid (preview/AR/model coords)."""
+    """Numerical self-consistency of the ground <-> pixel chain on a grid (CAM-009 desktop half).
+
+    This only checks that projection and back-projection agree; the preview/AR/model
+    coordinate agreement on the phone is measured by `CameraTransformChain` on device.
+    """
     mount = mount or default_mount()
     k = k or default_intrinsics()
     errs: list[float] = []
@@ -206,18 +153,23 @@ def display_compensate(
     yaw_rate: float,
     latency_ms: float,
     frame_w: int,
+    focal_px: float | None = None,
 ) -> list[tuple[float, float]]:
-    """GEO-007: shift overlay by predicted camera yaw over display latency."""
-    dx = float(yaw_rate) * (latency_ms / 1000.0) * float(frame_w) * 0.55
+    """GEO-007: shift overlay by predicted camera yaw over display latency.
+
+    dx = f * yaw_rate * latency; without intrinsics assume ~85 deg HFOV (f ~ 0.55 w).
+    """
+    f = float(focal_px) if focal_px and focal_px > 0 else float(frame_w) * 0.55
+    dx = float(yaw_rate) * (latency_ms / 1000.0) * f
     if abs(dx) < 0.5:
         return poly
     return [(x + dx, y) for x, y in poly]
 
 
 def default_mount(width: int = 1920, height: int = 1080) -> MountProfile:
+    """Nominal left-handlebar profile. The stored horizon is the one this pose projects to."""
     k = default_intrinsics(width, height)
-    horizon = float(k.cy) * 0.42
-    return MountProfile(
+    mount = MountProfile(
         profile_id="left_handlebar_v1",
         name="Left handlebar landscape 1x main",
         camera_id="rear_main",
@@ -229,7 +181,10 @@ def default_mount(width: int = 1920, height: int = 1080) -> MountProfile:
         lateral_offset_m=-0.32,
         handlebar_neutral_yaw_deg=0.0,
         near_reference_m=3.0,
-        horizon_y_px=horizon,
+        horizon_y_px=0.0,
         vehicle_centerline_x_px=float(width) * 0.52,
         valid=True,
     )
+    far = project_vehicle_point(np.array([0.0, 80.0, 0.0]), mount, k)
+    horizon = float(far[1]) if far is not None else float(k.cy) * 0.42
+    return replace(mount, horizon_y_px=horizon)

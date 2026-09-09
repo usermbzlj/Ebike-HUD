@@ -257,44 +257,55 @@ def test_bump_phrases_and_default_alert_threshold():
         )
         == "左前方下沉井盖"
     )
-    obj = TrackedRoadObject(
-        schema_version=SCHEMA_VERSION,
-        track_id=3,
-        timestamp_ns=10**10,
-        lifecycle_state=LifecycleState.CONFIRMED,
-        semantic_type=SemanticType.POTHOLE,
-        geometry_type=GeometryType.CONCAVE,
-        object_state=ObjectState.ABNORMAL,
-        severity=Severity.HEAVY,
-        direction=Direction.CENTER_FRONT,
-        distance_m=14.0,
-        distance_confidence=0.8,
-        distance_valid=True,
-        ttc_s=1.2,
-        model_confidence=0.35,
-        visibility_confidence=0.8,
-        temporal_confidence=0.7,
-        geometry_consistency=0.7,
-        effective_confidence=0.30,
-        path_relevance=0.85,
-        risk_score=0.4,
-        alert_score=0.0,
-        polygon=[(10, 10), (40, 10), (40, 40), (10, 40)],
-        bbox=(10, 10, 40, 40),
-        mask_rle=None,
-        source_frame_id=1,
-        mount_profile_id="left_handlebar_v1",
-        model_version="yolo-world",
-        visual_style="solid",
-    )
-    d = AlertPolicy(AlertConfig()).evaluate(obj, PerceptionStatus.NORMAL, 10**10, True)
+    def pothole(conf: float, eff: float, relevance: float = 0.9) -> TrackedRoadObject:
+        return TrackedRoadObject(
+            schema_version=SCHEMA_VERSION,
+            track_id=3,
+            timestamp_ns=10**10,
+            lifecycle_state=LifecycleState.CONFIRMED,
+            semantic_type=SemanticType.POTHOLE,
+            geometry_type=GeometryType.CONCAVE,
+            object_state=ObjectState.ABNORMAL,
+            severity=Severity.HEAVY,
+            direction=Direction.CENTER_FRONT,
+            distance_m=14.0,
+            distance_confidence=0.8,
+            distance_valid=True,
+            ttc_s=1.2,
+            model_confidence=conf,
+            visibility_confidence=0.8,
+            temporal_confidence=1.0,
+            geometry_consistency=0.88,
+            effective_confidence=eff,
+            path_relevance=relevance,
+            risk_score=0.4,
+            alert_score=0.0,
+            polygon=[(10, 10), (40, 10), (40, 40), (10, 40)],
+            bbox=(10, 10, 40, 40),
+            mask_rle=None,
+            source_frame_id=1,
+            mount_profile_id="left_handlebar_v1",
+            model_version="yolo-world",
+            visual_style="solid",
+        )
+
+    # A confident, confirmed, in-corridor pothole speaks.
+    d = AlertPolicy(AlertConfig()).evaluate(pothole(0.75, 0.53), PerceptionStatus.NORMAL, 10**10, True)
     assert d.fired is True
     assert "大坑" in d.phrase
+    # A 0.35-confidence detection does not: no class may bypass the effective-confidence gate.
+    weak = AlertPolicy(AlertConfig()).evaluate(pothole(0.35, 0.30), PerceptionStatus.NORMAL, 10**10, True)
+    assert weak.fired is False
+    assert "effective_gate" in weak.reasons
+    # Confident but well off the corridor stays quiet too.
+    side = AlertPolicy(AlertConfig()).evaluate(pothole(0.75, 0.53, relevance=0.46), PerceptionStatus.NORMAL, 10**10, True)
+    assert side.fired is False
 
 
 def test_missing_bump_weights_do_not_load_ultralytics(monkeypatch):
     monkeypatch.setattr("rpar.ml.world_bump.resolve_bump_weights", lambda path=None: None)
     assert try_load_world_bump() is None
     cfg = load_config()
-    assert cfg.alert.bump_score_threshold <= 0.10
+    # Bumps get a lower threshold than generic anomalies, but never a token one.
+    assert 0.15 <= cfg.alert.bump_score_threshold < cfg.alert.score_threshold
     assert CLASS_TO_ID["pothole"] == 0

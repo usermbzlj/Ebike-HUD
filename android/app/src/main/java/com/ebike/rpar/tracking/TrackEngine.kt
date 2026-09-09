@@ -162,6 +162,20 @@ class TrackEngine(private val cfg: TrackingConfig) {
         return tr
     }
 
+    private fun familyOf(s: SemanticType): String = when (s) {
+        SemanticType.POTHOLE, SemanticType.MANHOLE_COVER, SemanticType.UNKNOWN_ANOMALY,
+        SemanticType.ROUGH_BROKEN, SemanticType.REPAIR_PATCH -> "hole"
+        SemanticType.SPEED_BUMP, SemanticType.ROAD_JOINT -> "band"
+        SemanticType.PUDDLE, SemanticType.GRAVEL -> "info"
+    }
+
+    private fun compatible(a: SemanticType, b: SemanticType): Boolean =
+        a == b || familyOf(a) == familyOf(b)
+
+    private fun active(tr: TrackInternal): Boolean =
+        tr.state == LifecycleState.CANDIDATE || tr.state == LifecycleState.TRACKED ||
+            tr.state == LifecycleState.CONFIRMED || tr.state == LifecycleState.ALERTED
+
     fun update(
         observations: List<RoadObservation>,
         nowNs: Long,
@@ -170,23 +184,29 @@ class TrackEngine(private val cfg: TrackingConfig) {
         dtS: Double = 0.033,
         cameraYawRate: Double = 0.0,
         frameW: Double = 1920.0,
+        focalPx: Double? = null,
     ): List<TrackInternal> {
-        tracks.values.forEach { tr ->
+        val fPx = if (focalPx != null && focalPx > 0) focalPx else frameW * 0.55
+        tracks.values.filter { active(it) }.forEach { tr ->
             val p = kf.predict(tr.mean, tr.cov, maxOf(dtS, 1e-3))
             tr.mean = p.first; tr.cov = p.second
-            tr.mean[0] += cameraYawRate * dtS * (frameW * 0.55)
+            tr.mean[0] += cameraYawRate * dtS * fPx
         }
-        val unused = tracks.keys.toMutableSet()
+        val unused = tracks.filter { active(it.value) }.keys.toMutableSet()
         val usedObs = HashSet<Int>()
         val pairs = ArrayList<Triple<Double, Int, Int>>()
         for ((tid, tr) in tracks) {
+            if (!active(tr)) continue
+            val size = maxOf(tr.mean[4], tr.mean[5])
+            val thr = (0.75 * size).coerceIn(16.0, cfg.centerMatchPx)
             observations.forEachIndexed { j, obs ->
-                val iou = bboxIou(tr.bbox, obs.bbox)
+                if (!compatible(tr.semantic, obs.semanticType)) return@forEachIndexed
+                val iou = maxOf(bboxIou(tr.bbox, obs.bbox), bboxIou(predBox(tr), obs.bbox))
                 val (cx, cy) = if (obs.polygon.isNotEmpty()) groundContact(obs.polygon) else polygonCentroid(obs.polygon)
                 val dist = hypot(cx.toDouble() - tr.mean[0], cy.toDouble() - tr.mean[1])
-                val same = obs.semanticType == tr.semantic || obs.semanticType == SemanticType.UNKNOWN_ANOMALY
-                val score = iou * (if (same) 1.2 else 0.7) - dist / 400.0
-                if (iou >= cfg.iouMatch || dist < cfg.centerMatchPx) pairs += Triple(score, tid, j)
+                val same = obs.semanticType == tr.semantic
+                val score = iou * (if (same) 1.2 else 0.8) - dist / (4.0 * cfg.centerMatchPx)
+                if (iou >= cfg.iouMatch || dist < thr) pairs += Triple(score, tid, j)
             }
         }
         pairs.sortByDescending { it.first }
@@ -235,8 +255,16 @@ class TrackEngine(private val cfg: TrackingConfig) {
             }
             advance(tr, nowNs, observed = false, qualityOk = qualityOk)
         }
-        tracks.entries.removeAll { it.value.state == LifecycleState.EXPIRED && trFade(it.value) < 0.05 }
+        tracks.entries.removeAll {
+            it.value.state == LifecycleState.EXPIRED ||
+                (it.value.state == LifecycleState.PASSED && (nowNs - it.value.lastNs) / 1e9 > cfg.passedRemoveS)
+        }
         return tracks.values.toList()
+    }
+
+    private fun predBox(tr: TrackInternal): FloatArray {
+        val cx = tr.mean[0]; val cy = tr.mean[1]; val w = tr.mean[4]; val h = tr.mean[5]
+        return floatArrayOf((cx - w / 2).toFloat(), (cy - h).toFloat(), (cx + w / 2).toFloat(), cy.toFloat())
     }
 
     fun markPassed(trackId: Int, nowNs: Long, reason: String) {
@@ -271,9 +299,9 @@ class TrackEngine(private val cfg: TrackingConfig) {
                 return
             }
         }
-        if (tr.state == LifecycleState.TRACKED && qualityOk) {
-            val confAge = if (bump) 0.12 else cfg.confirmWindowS
-            if (tr.hits >= need && age >= confAge && (observed || bump)) {
+        if (tr.state == LifecycleState.TRACKED && qualityOk && observed) {
+            val confAge = if (bump) cfg.confirmWindowS * 0.5 else cfg.confirmWindowS
+            if (tr.hits >= need && age >= confAge) {
                 tr.state = LifecycleState.CONFIRMED
                 tr.confirmedNs = nowNs
                 history += Triple(tr.trackId, tr.state, "stable_visible")
