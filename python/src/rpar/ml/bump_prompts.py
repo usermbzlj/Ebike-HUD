@@ -123,7 +123,8 @@ def keep_box(yolo_class: str, bbox: tuple[float, float, float, float], width: in
         return False
     cy = 0.5 * (y0 + y1)
     cx = 0.5 * (x0 + x1)
-    if cy < 0.28 * height:
+    # 15–20 m 中大型 hazards sit near the handlebar horizon, not the near wheel.
+    if cy < 0.16 * height:
         return False
     if cx < 0.08 * width or cx > 0.92 * width:
         return False
@@ -133,12 +134,12 @@ def keep_box(yolo_class: str, bbox: tuple[float, float, float, float], width: in
         return False
     aspect = bw / max(bh, 1.0)
     if yolo_class == "pothole":
-        return 0.0012 <= frac <= 0.12 and aspect < 3.5
+        return 0.00035 <= frac <= 0.12 and aspect < 3.5
     if yolo_class == "speed_bump":
-        return 0.002 <= frac <= 0.12 and (bw >= 0.12 * width or aspect >= 1.6)
+        return 0.0008 <= frac <= 0.12 and (bw >= 0.10 * width or aspect >= 1.6)
     if yolo_class == "manhole_cover":
         # Handlebar view flattens circular covers into wide ellipses.
-        return 0.0006 <= frac <= 0.08 and 0.35 <= aspect <= 4.2
+        return 0.00035 <= frac <= 0.08 and 0.35 <= aspect <= 4.2
     return False
 
 

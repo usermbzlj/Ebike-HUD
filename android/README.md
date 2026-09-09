@@ -61,6 +61,6 @@ The app starts without opening a camera. Replay and SAFE_MODE feed a generated r
 
 ## Bump LiteRT sidecar
 
-`rpar export-bump-tflite` writes `models/bump-world-0.1.0/model.onnx` on Windows (Ultralytics LiteRT export is Linux/macOS only) or `model.tflite` when that export works. If the graph exists at build time, Gradle copies it into APK assets. At runtime `ModelManager` keeps the heuristic engine for road/info-layer and replaces pothole / speed-bump / manhole observations when ONNX Runtime or LiteRT loads the graph. Camera2 analysis now copies U/V so letterbox RGB is not luma-only.
+`rpar export-bump-tflite` writes `models/bump-world-0.1.0/model.onnx` on Windows (Ultralytics LiteRT export is Linux/macOS only) or `model.tflite` when that export works. Default letterbox size is **640** to match desktop YOLO-World. If the graph exists at build time, Gradle copies it into APK assets. At runtime `ModelManager` keeps the heuristic engine for road/info-layer and replaces pothole / speed-bump / manhole observations when ONNX Runtime (NNAPI, then CPU) or LiteRT loads the graph. Camera2 analysis now copies U/V so letterbox RGB is not luma-only.
 
 V0.1 only ships `arm64-v8a` (PKC110). Emulator x86 falls back to heuristic if ONNX native libs are absent.

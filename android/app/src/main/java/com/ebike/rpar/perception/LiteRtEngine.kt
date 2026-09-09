@@ -64,7 +64,7 @@ class HybridEngine(
         ): PerceptionResult {
             if (replacesBump) {
                 val kept = primary.observations.filter { it.semanticType !in YoloDetect.bumpTypes }
-                val extra = gateObservations(sidecar.observations, primary.roadPolygon, primary.occludedPolygons)
+                val extra = gateObservations(sidecar.observations, emptyList(), primary.occludedPolygons)
                 return primary.copy(
                     observations = kept + extra,
                     latencyMs = maxOf(primary.latencyMs, sidecar.latencyMs),
@@ -355,6 +355,7 @@ class LiteRtEngine(
                     names = names,
                     imgsz = imgsz,
                     nhwc = if (yolo) nhwc else true,
+                    confThr = YoloDetect.readConf(File(file.parentFile, "labels.json"), 0.08f),
                 )
             } catch (t: Throwable) {
                 Log.i(TAG, "not a runnable LiteRT pack (${file.name}): ${t.message}")

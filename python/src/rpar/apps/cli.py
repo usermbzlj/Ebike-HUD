@@ -163,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
     trb.add_argument("--skip-download", action="store_true")
 
     xb = sub.add_parser("export-bump-tflite", help="export frozen YOLO bump detect graph for the phone LiteRT sidecar")
-    xb.add_argument("--imgsz", type=int, default=320)
+    xb.add_argument("--imgsz", type=int, default=640)
     xb.add_argument("--no-nms", action="store_true")
     xb.add_argument("--out", default="")
     xb.add_argument("--weights", default="")

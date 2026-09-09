@@ -13,8 +13,8 @@
     "manhole_cover"
   ],
   "conf": 0.08,
-  "imgsz": 320,
-  "nms": false,
+  "imgsz": 640,
+  "nms": true,
   "engine": "yolo-bump",
   "graph": "model.onnx",
   "layout": "NCHW"

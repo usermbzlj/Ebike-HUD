@@ -85,6 +85,9 @@ val generatedBumpAssets = layout.buildDirectory.dir("generated/rpar-assets")
 tasks.register<Copy>("copyBumpTfliteIfPresent") {
     val tflite = bumpPackageDir.resolve("model.tflite")
     val onnx = bumpPackageDir.resolve("model.onnx")
+    val labels = bumpPackageDir.resolve("labels.json")
+    val manifest = bumpPackageDir.resolve("manifest.json")
+    inputs.files(tflite, onnx, labels, manifest)
     onlyIf { (tflite.isFile && tflite.length() > 1_000_000L) || (onnx.isFile && onnx.length() > 1_000_000L) }
     from(bumpPackageDir) {
         include("model.tflite", "model.onnx", "labels.json", "manifest.json", "MODEL_CARD.md")

@@ -160,13 +160,15 @@ _BUMP_TYPES = {SemanticType.POTHOLE, SemanticType.SPEED_BUMP, SemanticType.MANHO
 
 
 def merge_bump_perception(primary: PerceptionResult, bump: PerceptionResult) -> PerceptionResult:
-    """Bump-net output owns pothole/cover/hump. Empty model output still drops heuristic FPs."""
+    """Bump-net output owns pothole/cover/hump. Empty model output still drops heuristic FPs.
+
+    Do not require the box center to sit inside the drivable polygon: far 15 m pits live on a
+    thin road strip, and green DA is punched under bump contours.
+    """
     kept = [o for o in primary.observations if o.semantic_type not in _BUMP_TYPES]
     extra = list(bump.observations)
     if primary.occluded_polygons:
         extra = gate_observations(extra, [], primary.occluded_polygons, None)
-    if len(primary.road_polygon) >= 3:
-        extra = [o for o in extra if _near_poly(*_obs_center(o), primary.road_polygon)]
     return PerceptionResult(
         timestamp_ns=primary.timestamp_ns,
         source_frame_id=primary.source_frame_id,

@@ -116,6 +116,9 @@ def test_keep_box_rejects_full_frame_road():
     assert keep_box("manhole_cover", (693, 257, 807, 291), 960, 540) is True
     assert keep_box("pothole", (1, 154, 954, 535), 960, 540) is False
     assert keep_box("pothole", (20, 400, 80, 460), 960, 540) is False
+    assert keep_box("pothole", (900, 200, 960, 248), 1920, 1080) is True
+    assert keep_box("speed_bump", (620, 240, 1280, 280), 1920, 1080) is True
+    assert keep_box("manhole_cover", (880, 190, 960, 230), 1920, 1080) is True
     bgr = np.zeros((360, 640, 3), dtype=np.uint8)
     obs = detection_to_obs(_frame(bgr), "large pothole", (200, 180, 380, 300), 0.62, bgr)
     assert obs is not None
@@ -169,6 +172,32 @@ def test_merge_bump_replaces_heuristic_when_model_hits():
     assert SemanticType.ROAD_JOINT in kinds
     assert m.backend == InferenceBackend.GPU
     assert stripped.backend == InferenceBackend.GPU
+    off_road = PerceptionResult(
+        timestamp_ns=1,
+        source_frame_id=0,
+        road_polygon=[(0, 30), (20, 30), (20, 40), (0, 40)],
+        occluded_polygons=[[(50, 50), (80, 50), (80, 80), (50, 80)]],
+        observations=[],
+        backend=InferenceBackend.GPU,
+        latency_ms=12.0,
+        input_sizes=[(640, 640)],
+    )
+    far = PerceptionResult(
+        timestamp_ns=1,
+        source_frame_id=0,
+        road_polygon=[],
+        occluded_polygons=[],
+        observations=[
+            _obs(SemanticType.POTHOLE, (4, 4, 12, 12)),
+            _obs(SemanticType.SPEED_BUMP, (55, 55, 70, 70), geometry=GeometryType.CONVEX),
+        ],
+        backend=InferenceBackend.GPU,
+        latency_ms=12.0,
+        input_sizes=[(640, 640)],
+    )
+    kept_far = merge_bump_perception(off_road, far)
+    assert any(o.semantic_type == SemanticType.POTHOLE and o.bbox[0] == 4 for o in kept_far.observations)
+    assert not any(o.semantic_type == SemanticType.SPEED_BUMP for o in kept_far.observations)
 
 
 def test_is_open_vocab_ignores_parent_folder_named_world():

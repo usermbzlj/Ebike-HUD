@@ -11,6 +11,6 @@ YOLOPv2 remains drivable-area + vehicles only. Phone sidecar is `rpar export-bum
 - n_clips: 0
 - n_train_images: 0
 - trained: False
-- weights: `models/bump-world-0.1.0/model.onnx` (gitignored, ~107 MB, 320² NCHW)
+- weights: `model.onnx`
 
-Not Camera2 1080p60 GT. Fine-tune quality tracks how many real 大坑 / 下沉井盖 / 减速带 clips you deliver.
+Phone ONNX default `imgsz=640` matches desktop YOLO-World infer. Not Camera2 1080p60 GT. Fine-tune quality tracks how many real 大坑 / 下沉井盖 / 减速带 clips you deliver.
