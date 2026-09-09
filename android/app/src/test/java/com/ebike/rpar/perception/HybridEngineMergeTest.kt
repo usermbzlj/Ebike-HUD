@@ -92,4 +92,64 @@ class HybridEngineMergeTest {
         assertTrue(m.observations.none { it.semanticType == SemanticType.MANHOLE_COVER })
         assertTrue(m.observations.none { it.bbox[0] == 3f })
     }
+
+    @Test
+    fun bumpSidecarReplacesHeuristicEvenIfEmpty() {
+        val road = listOf(0f to 0f, 40f to 0f, 40f to 40f, 0f to 40f)
+        val primary = PerceptionResult(
+            timestampNs = 1,
+            sourceFrameId = 0,
+            roadPolygon = road,
+            occludedPolygons = emptyList(),
+            observations = listOf(obs(SemanticType.POTHOLE, 8f, 8f, 16f, 16f)),
+            backend = InferenceBackend.HEURISTIC,
+            latencyMs = 4.0,
+            inputSizes = listOf(intArrayOf(96, 48)),
+        )
+        val sidecar = PerceptionResult(
+            timestampNs = 1,
+            sourceFrameId = 0,
+            roadPolygon = emptyList(),
+            occludedPolygons = emptyList(),
+            observations = emptyList(),
+            backend = InferenceBackend.CPU,
+            latencyMs = 9.0,
+            inputSizes = listOf(intArrayOf(320, 320)),
+        )
+        val m = HybridEngine.merge(primary, sidecar, null, replacesBump = true)
+        assertTrue(m.observations.none { it.semanticType == SemanticType.POTHOLE })
+        assertEquals(9.0, m.latencyMs, 1e-6)
+    }
+
+    @Test
+    fun bumpSidecarKeepsInfoLayerAddsManhole() {
+        val road = listOf(0f to 0f, 40f to 0f, 40f to 40f, 0f to 40f)
+        val primary = PerceptionResult(
+            timestampNs = 1,
+            sourceFrameId = 0,
+            roadPolygon = road,
+            occludedPolygons = emptyList(),
+            observations = listOf(
+                obs(SemanticType.POTHOLE, 8f, 8f, 16f, 16f),
+                obs(SemanticType.PUDDLE, 20f, 20f, 28f, 28f),
+            ),
+            backend = InferenceBackend.HEURISTIC,
+            latencyMs = 4.0,
+            inputSizes = listOf(intArrayOf(96, 48)),
+        )
+        val sidecar = PerceptionResult(
+            timestampNs = 1,
+            sourceFrameId = 0,
+            roadPolygon = emptyList(),
+            occludedPolygons = emptyList(),
+            observations = listOf(obs(SemanticType.MANHOLE_COVER, 10f, 12f, 18f, 22f)),
+            backend = InferenceBackend.CPU,
+            latencyMs = 11.0,
+            inputSizes = listOf(intArrayOf(320, 320)),
+        )
+        val m = HybridEngine.merge(primary, sidecar, null, replacesBump = true)
+        assertTrue(m.observations.none { it.semanticType == SemanticType.POTHOLE })
+        assertTrue(m.observations.any { it.semanticType == SemanticType.PUDDLE })
+        assertTrue(m.observations.any { it.semanticType == SemanticType.MANHOLE_COVER })
+    }
 }

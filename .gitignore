@@ -44,6 +44,8 @@ models/**/*.pt
 models/**/*.pth
 *.pt
 *.pth
+models/bump-world-0.1.0/*.tflite
+models/yolo-world/*.tflite
 .cache/
 *.pyc
 .kotlin/

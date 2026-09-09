@@ -23,11 +23,13 @@ import java.nio.ByteOrder
 class HybridEngine(
     private val primary: PerceptionEngine,
     private val sidecar: PerceptionEngine?,
+    private val replacesBump: Boolean = false,
 ) : PerceptionEngine {
     override fun capability(): Map<String, Any> {
         val cap = HashMap(primary.capability())
         cap["hybrid"] = sidecar != null
         cap["litert_sidecar"] = sidecar is LiteRtEngine
+        cap["replaces_bump"] = replacesBump || (sidecar as? LiteRtEngine)?.replacesBumpInstances == true
         if (sidecar != null) cap.putAll(sidecar.capability())
         return cap
     }
@@ -35,13 +37,14 @@ class HybridEngine(
     override suspend fun infer(frame: SynchronizedFrame, quality: FrameQualityMap?): PerceptionResult {
         val h = primary.infer(frame, quality)
         val t = sidecar ?: return h
+        val replaces = replacesBump || (t as? LiteRtEngine)?.replacesBumpInstances == true
         return try {
             val probe = t.infer(frame, quality)
-            if (probe.roadPolygon.size < 3 && probe.observations.isEmpty() && probe.occludedPolygons.isEmpty()) {
+            if (!replaces && probe.roadPolygon.size < 3 && probe.observations.isEmpty() && probe.occludedPolygons.isEmpty()) {
                 return h
             }
-            val score = (t as? LiteRtEngine)?.lastScore
-            merge(h, probe, score)
+            val score = if (replaces) null else (t as? LiteRtEngine)?.lastScore
+            merge(h, probe, score, replacesBump = replaces)
         } catch (_: Throwable) {
             h
         }
@@ -53,7 +56,21 @@ class HybridEngine(
     }
 
     companion object {
-        fun merge(primary: PerceptionResult, sidecar: PerceptionResult, score: Double? = null): PerceptionResult {
+        fun merge(
+            primary: PerceptionResult,
+            sidecar: PerceptionResult,
+            score: Double? = null,
+            replacesBump: Boolean = false,
+        ): PerceptionResult {
+            if (replacesBump) {
+                val kept = primary.observations.filter { it.semanticType !in YoloDetect.bumpTypes }
+                val extra = gateObservations(sidecar.observations, primary.roadPolygon, primary.occludedPolygons)
+                return primary.copy(
+                    observations = kept + extra,
+                    latencyMs = maxOf(primary.latencyMs, sidecar.latencyMs),
+                    dualScale = true,
+                )
+            }
             val road = if (sidecar.roadPolygon.size >= 3) sidecar.roadPolygon else primary.roadPolygon
             val occ = sidecar.occludedPolygons.ifEmpty { primary.occludedPolygons }
             val obs = gateObservations(
@@ -100,6 +117,11 @@ class LiteRtEngine(
     private val cfg: RparConfig,
     private val interpreter: Interpreter,
     private val modelFile: File,
+    val replacesBumpInstances: Boolean = false,
+    private val names: List<String> = YoloDetect.DEFAULT_NAMES,
+    private val imgsz: Int = 640,
+    private val nhwc: Boolean = true,
+    private val confThr: Float = 0.08f,
 ) : PerceptionEngine {
     @Volatile var lastScore: Double? = null
         private set
@@ -108,10 +130,11 @@ class LiteRtEngine(
         "backend" to InferenceBackend.CPU.wire,
         "runtime" to "tflite",
         "model" to modelFile.name,
-        "dual_scale" to true,
+        "dual_scale" to !replacesBumpInstances,
         "replaceable" to true,
         "outputs" to "RoadObservation",
-        "input" to "far_near_features_12_or_nhwc_classmap",
+        "replaces_bump" to replacesBumpInstances,
+        "input" to if (replacesBumpInstances) "letterbox_rgb_yolo" else "far_near_features_12_or_nhwc_classmap",
     )
 
     override suspend fun infer(frame: SynchronizedFrame, quality: FrameQualityMap?): PerceptionResult {
@@ -119,6 +142,14 @@ class LiteRtEngine(
         val near = cfg.model.inputNear
         val t0 = System.nanoTime()
         lastScore = null
+        if (replacesBumpInstances) {
+            return try {
+                runYolo(frame, quality, t0)
+            } catch (t: Throwable) {
+                Log.w(TAG, "YOLO LiteRT skipped: ${t.message}")
+                emptyResult(frame, t0, far, near)
+            }
+        }
         var decoded: PerceptionResult? = null
         try {
             if (interpreter.inputTensorCount < 1 || interpreter.outputTensorCount < 1) {
@@ -150,16 +181,57 @@ class LiteRtEngine(
             decoded = null
         }
         val latency = (System.nanoTime() - t0) / 1e6
-        return decoded?.copy(latencyMs = latency) ?: PerceptionResult(
+        return decoded?.copy(latencyMs = latency) ?: emptyResult(frame, t0, far, near)
+    }
+
+    private fun emptyResult(frame: SynchronizedFrame, t0: Long, far: IntArray, near: IntArray): PerceptionResult {
+        return PerceptionResult(
             timestampNs = frame.meta.sensorTimestampNs,
             sourceFrameId = frame.meta.frameId,
             roadPolygon = emptyList(),
             occludedPolygons = emptyList(),
             observations = emptyList(),
             backend = InferenceBackend.CPU,
-            latencyMs = latency,
-            inputSizes = listOf(far, near),
-            dualScale = true,
+            latencyMs = (System.nanoTime() - t0) / 1e6,
+            inputSizes = if (replacesBumpInstances) listOf(intArrayOf(imgsz, imgsz)) else listOf(far, near),
+            dualScale = !replacesBumpInstances,
+        )
+    }
+
+    private fun runYolo(frame: SynchronizedFrame, quality: FrameQualityMap?, t0: Long): PerceptionResult {
+        val in0 = interpreter.getInputTensor(0)
+        val nPix = imgsz * imgsz * 3
+        val rgb = FloatArray(nPix)
+        val meta = YoloDetect.fillLetterboxRgb(frame, imgsz, nhwc, rgb)
+        val inBuf = ByteBuffer.allocateDirect(in0.numBytes().coerceAtLeast(nPix * 4)).order(ByteOrder.nativeOrder())
+        rgb.forEach { inBuf.putFloat(it) }
+        inBuf.rewind()
+        val out0 = interpreter.getOutputTensor(0)
+        val outBuf = ByteBuffer.allocateDirect(out0.numBytes().coerceAtLeast(16)).order(ByteOrder.nativeOrder())
+        interpreter.run(inBuf, outBuf)
+        outBuf.rewind()
+        val fb = outBuf.asFloatBuffer()
+        val floats = FloatArray(fb.remaining())
+        fb.get(floats)
+        val dets = YoloDetect.decode(floats, out0.shape(), names, confThr)
+        val w = frame.meta.width
+        val h = frame.meta.height
+        val obs = ArrayList<RoadObservation>()
+        for (d in dets) {
+            val box = YoloDetect.xyxyToOrig(d.x0, d.y0, d.x1, d.y1, meta, w, h)
+            val item = YoloDetect.toObservation(frame, d, box, quality) ?: continue
+            obs.add(item)
+        }
+        return PerceptionResult(
+            timestampNs = frame.meta.sensorTimestampNs,
+            sourceFrameId = frame.meta.frameId,
+            roadPolygon = emptyList(),
+            occludedPolygons = emptyList(),
+            observations = obs,
+            backend = InferenceBackend.CPU,
+            latencyMs = (System.nanoTime() - t0) / 1e6,
+            inputSizes = listOf(intArrayOf(imgsz, imgsz)),
+            dualScale = false,
         )
     }
 
@@ -263,7 +335,26 @@ class LiteRtEngine(
                     interp.close()
                     return null
                 }
-                LiteRtEngine(cfg, interp, file)
+                val in0 = interp.getInputTensor(0)
+                val inShape = in0.shape()
+                val outShape = if (interp.outputTensorCount >= 1) interp.getOutputTensor(0).shape() else intArrayOf()
+                val yolo = YoloDetect.isYoloDetectShape(outShape) && inShape.size == 4 && inShape.any { it >= 256 }
+                val nhwc = inShape.size == 4 && inShape[3] == 3
+                val imgsz = when {
+                    yolo && nhwc -> inShape[1].coerceAtLeast(inShape[2])
+                    yolo && inShape[1] == 3 -> inShape[2].coerceAtLeast(inShape[3])
+                    else -> 640
+                }
+                val names = YoloDetect.readNames(File(file.parentFile, "labels.json"))
+                LiteRtEngine(
+                    cfg,
+                    interp,
+                    file,
+                    replacesBumpInstances = yolo,
+                    names = names,
+                    imgsz = imgsz,
+                    nhwc = if (yolo) nhwc else true,
+                )
             } catch (t: Throwable) {
                 Log.i(TAG, "not a runnable LiteRT pack (${file.name}): ${t.message}")
                 null

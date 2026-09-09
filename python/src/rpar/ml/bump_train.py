@@ -16,7 +16,8 @@ from rpar.ml.bump_dataset import (
     propose_labels,
 )
 from rpar.ml.train import write_run_card
-from rpar.ml.world_bump import TEACHER_NAME, default_teacher_path, repo_root
+from rpar.ml.bump_prompts import WORLD_INFER_PROMPTS, YOLO_NAMES
+from rpar.ml.world_bump import TEACHER_NAME, default_teacher_path, default_vocab_path, repo_root, resolve_bump_weights
 
 
 def ultralytics_available() -> bool:
@@ -68,8 +69,10 @@ def write_bump_card(out_dir: Path, **kwargs: Any) -> Path:
         "on phone clips dropped in `Video/train/inbox/`.\n\n"
         "Product enums stay spec (`pothole`, `speed_bump`, `manhole_cover`). "
         "Public RDD/Rome class tables are **not** concatenated into this list.\n\n"
-        "YOLOPv2 remains drivable-area + vehicles only. This package is **not** a PKC110 "
-        "LiteRT bump net; the phone keeps the heuristic until a quantized student is exported.\n\n"
+        "YOLOPv2 remains drivable-area + vehicles only. Phone sidecar is "
+        "`rpar export-bump-tflite` → `model.onnx` on Windows (LiteRT export is Linux/macOS) "
+        "or `model.tflite` when Ultralytics allows it (gitignored). Heuristic pits are "
+        "replaced only when that graph loads; a missing/broken Interpreter keeps the HUD.\n\n"
         f"- teacher: `{TEACHER_NAME}`\n"
         f"- dataset: `{kwargs.get('dataset_dir', '')}`\n"
         f"- n_clips: {kwargs.get('n_clips', 0)}\n"
@@ -183,3 +186,126 @@ def run_bump_train(
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
     return summary
+
+
+def _names_from_model(model: Any) -> list[str]:
+    raw = getattr(model, "names", None) or {}
+    if isinstance(raw, dict):
+        return [str(raw.get(i, raw.get(str(i), ""))) for i in range(len(raw))]
+    return [str(n) for n in raw]
+
+
+def write_bump_lite_package(out_dir: Path, graph: Path, names: list[str], *, imgsz: int, nms: bool) -> dict[str, Any]:
+    import hashlib
+
+    out_dir = Path(out_dir)
+    graph = Path(graph)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dest_name = "model.onnx" if graph.suffix.lower() == ".onnx" else "model.tflite"
+    dest = out_dir / dest_name
+    if graph.resolve() != dest.resolve():
+        shutil.copy2(graph, dest)
+    labels = {
+        "names": {str(i): n for i, n in enumerate(names)},
+        "yolo_names": list(YOLO_NAMES),
+        "conf": 0.08,
+        "imgsz": int(imgsz),
+        "nms": bool(nms),
+        "engine": "yolo-bump",
+        "graph": dest_name,
+        "layout": "NCHW",
+    }
+    (out_dir / "labels.json").write_text(json.dumps(labels, indent=2, ensure_ascii=False), encoding="utf-8")
+    manifest: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "package_id": "bump-world-0.1.0",
+        "engine": "yolo-bump",
+        "role": "bump_sidecar",
+        "files": {dest_name: dest_name, "labels.json": "labels.json"},
+        "input_spec": {
+            "detect": {"width": int(imgsz), "height": int(imgsz), "layout": "NCHW", "norm": "0-1"},
+            "note": "Letterboxed RGB detect. YOLOPv2 / heuristic still own drivable area. "
+            "Ultralytics LiteRT export is Linux/macOS only; this host packages ONNX for the phone.",
+        },
+        "quantization": "fp32",
+        "compatible_app": ">=0.1.0",
+        "labels": {"semantic_type": list(YOLO_NAMES)},
+        "sha256": {},
+    }
+    for p in out_dir.iterdir():
+        if p.is_file() and p.name != "manifest.json" and p.suffix.lower() not in {".tflite", ".onnx", ".pt"}:
+            manifest["sha256"][p.name] = hashlib.sha256(p.read_bytes()).hexdigest()
+    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    write_bump_card(out_dir, weights=dest_name, trained=False, dataset_dir="", n_clips=0, n_train_images=0)
+    return {
+        "ok": dest.is_file() and dest.stat().st_size > 1_000_000,
+        "path": str(dest),
+        "bytes": dest.stat().st_size,
+        "imgsz": int(imgsz),
+        "format": dest_name,
+    }
+
+
+def _export_ultralytics(model: Any, *, imgsz: int, nms: bool) -> tuple[Path | None, bool, str | None]:
+    """LiteRT on Linux/macOS; YOLO-World v2 on Windows falls back to ONNX."""
+    tflite_err = "tflite_skipped"
+    if not __import__("sys").platform.startswith("win"):
+        try:
+            exported = model.export(format="tflite", imgsz=int(imgsz), nms=bool(nms), keras=False)
+            path = Path(str(exported))
+            if path.is_file():
+                return path, nms, None
+            tflite_err = "tflite_path_missing"
+        except Exception as exc:
+            tflite_err = str(exc)[:400]
+    try:
+        exported = model.export(format="onnx", imgsz=int(imgsz), simplify=True, dynamic=False)
+        path = Path(str(exported))
+        if path.is_file():
+            return path, False, tflite_err
+    except Exception as exc:
+        return None, False, f"tflite={tflite_err}; onnx={str(exc)[:400]}"
+    return None, False, tflite_err
+
+
+def export_bump_tflite(
+    *,
+    imgsz: int = 320,
+    nms: bool = True,
+    weights: Path | None = None,
+    out_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Export a phone detect graph. LiteRT when Ultralytics allows it; ONNX on Windows."""
+    if not ultralytics_available():
+        return {"ok": False, "reason": "ultralytics_missing"}
+    from ultralytics import YOLO
+
+    from rpar.ml.world_bump import ensure_bump_vocab
+
+    vocab = ensure_bump_vocab()
+    src = resolve_bump_weights(weights) or default_vocab_path() or default_teacher_path()
+    if src is None or not Path(src).is_file():
+        return {"ok": False, "reason": "weights_missing", "vocab": vocab}
+    out_dir = Path(out_dir) if out_dir else repo_root() / "models" / "bump-world-0.1.0"
+    try:
+        model = YOLO(str(src))
+    except Exception as exc:
+        return {"ok": False, "reason": "load_failed", "error": str(exc)[:400], "src": str(src)}
+    names = _names_from_model(model)
+    if not any(n.strip() for n in names):
+        names = list(WORLD_INFER_PROMPTS)
+    exported_path, used_nms, warn = _export_ultralytics(model, imgsz=imgsz, nms=nms)
+    if exported_path is None or not exported_path.is_file():
+        return {"ok": False, "reason": "export_failed", "error": warn or "no_graph", "src": str(src)}
+    packed = write_bump_lite_package(out_dir, exported_path, names, imgsz=imgsz, nms=used_nms)
+    packed.update(
+        {
+            "src": str(src),
+            "exported": str(exported_path),
+            "names": names,
+            "nms": used_nms,
+            "vocab": vocab,
+            "tflite_note": warn,
+        }
+    )
+    return packed

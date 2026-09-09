@@ -4,13 +4,13 @@ Desktop **YOLO-World** open-vocabulary detector prompted for `pothole` / `speed 
 
 Product enums stay spec (`pothole`, `speed_bump`, `manhole_cover`). Public RDD/Rome class tables are **not** concatenated into this list.
 
-YOLOPv2 remains drivable-area + vehicles only. This package is **not** a PKC110 LiteRT bump net; the phone keeps the heuristic until a quantized student is exported.
+YOLOPv2 remains drivable-area + vehicles only. Phone sidecar is `rpar export-bump-tflite` → `model.onnx` on Windows (LiteRT export is Linux/macOS) or `model.tflite` when Ultralytics allows it (gitignored). Heuristic pits are replaced only when that graph loads; a missing/broken Interpreter keeps the HUD.
 
-Weights (`best.pt`, teacher `.pt`) stay gitignored. After you copy clips into `Video/train/inbox/`:
-
-```text
-rpar fetch-bump-model
-rpar train-bump
-```
+- teacher: `yolov8m-worldv2.pt`
+- dataset: ``
+- n_clips: 0
+- n_train_images: 0
+- trained: False
+- weights: `models/bump-world-0.1.0/model.onnx` (gitignored, ~107 MB, 320² NCHW)
 
 Not Camera2 1080p60 GT. Fine-tune quality tracks how many real 大坑 / 下沉井盖 / 减速带 clips you deliver.
