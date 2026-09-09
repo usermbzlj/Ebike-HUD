@@ -20,8 +20,10 @@ PALETTE = {
     "info": (180, 160, 60),
 }
 
+_ROAD_HOLE_KINDS = frozenset({"anomaly", "bump"})
 
-def draw_poly(img: np.ndarray, prim: RenderPrimitive) -> None:
+
+def draw_poly(img: np.ndarray, prim: RenderPrimitive, holes: Iterable[RenderPrimitive] | None = None) -> None:
     if len(prim.polygon) < 3:
         return
     pts = np.array(prim.polygon, dtype=np.int32)
@@ -30,7 +32,17 @@ def draw_poly(img: np.ndarray, prim: RenderPrimitive) -> None:
     overlay = img.copy()
     cv2.fillPoly(overlay, [pts], color)
     fill = 0.58 if prim.kind == "road" else 0.46 if prim.kind == "occlusion" else 0.28
-    cv2.addWeighted(overlay, alpha * fill, img, 1 - alpha * fill, 0, img)
+    if prim.kind == "road" and holes:
+        mask = np.zeros(img.shape[:2], dtype=np.uint8)
+        cv2.fillPoly(mask, [pts], 255)
+        for hole in holes:
+            if len(hole.polygon) < 3:
+                continue
+            cv2.fillPoly(mask, [np.array(hole.polygon, dtype=np.int32)], 0)
+        mix = cv2.addWeighted(overlay, alpha * fill, img, 1 - alpha * fill, 0)
+        img[mask > 0] = mix[mask > 0]
+    else:
+        cv2.addWeighted(overlay, alpha * fill, img, 1 - alpha * fill, 0, img)
     if prim.dashed:
         for i in range(len(pts)):
             a = pts[i]
@@ -58,8 +70,9 @@ def compose(bgr: np.ndarray, view: PerceptionView, ui_mode: UiMode = UiMode.RIDI
     if night:
         img = np.clip(img.astype(np.float32) * 0.72, 0, 255).astype(np.uint8)
     prims = sorted(view.primitives, key=lambda p: p.label_priority, reverse=True)
+    holes = [p for p in prims if p.kind in _ROAD_HOLE_KINDS and len(p.polygon) >= 3]
     for p in prims:
-        draw_poly(img, p)
+        draw_poly(img, p, holes=holes if p.kind == "road" else None)
     for p in prims:
         draw_label(img, p)
     if ui_mode == UiMode.RESEARCH and view.quality is not None:

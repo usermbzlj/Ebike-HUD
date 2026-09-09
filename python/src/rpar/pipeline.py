@@ -462,7 +462,7 @@ class RealtimePipeline:
                 RenderPrimitive(
                     track_id=-6,
                     polygon=self.last_road_polygon,
-                    color_rgba=(0.12, 0.92, 0.38, 0.16 if ui_mode == UiMode.RIDING else 0.28),
+                    color_rgba=(0.12, 0.92, 0.38, 0.10 if ui_mode == UiMode.RIDING else 0.22),
                     dashed=False,
                     thickness=2.0,
                     label=None,
@@ -654,7 +654,7 @@ class RealtimePipeline:
                     label=label,
                     label_priority=obj.label_rank or 50,
                     fade=fade,
-                    kind="info" if info else "anomaly",
+                    kind="info" if info else ("bump" if is_bump_hazard(obj.semantic_type, obj.geometry_type, obj.object_state) else "anomaly"),
                 )
             )
         return prims
