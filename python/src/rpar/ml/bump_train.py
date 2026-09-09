@@ -28,7 +28,10 @@ def ensure_teacher_weights(dest: Path | None = None) -> dict[str, Any]:
     dest = Path(dest) if dest else default_teacher_path()
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.is_file() and dest.stat().st_size > 1_000_000:
-        return {"ok": True, "path": str(dest), "downloaded": False}
+        from rpar.ml.world_bump import ensure_bump_vocab
+
+        vocab = ensure_bump_vocab()
+        return {"ok": True, "path": str(dest), "downloaded": False, "vocab": vocab}
     if not ultralytics_available():
         return {"ok": False, "reason": "ultralytics_missing", "path": str(dest)}
     from ultralytics import YOLO
@@ -48,7 +51,10 @@ def ensure_teacher_weights(dest: Path | None = None) -> dict[str, Any]:
     if src.is_file() and src.resolve() != dest.resolve():
         shutil.copy2(src, dest)
     if dest.is_file() and dest.stat().st_size > 1_000_000:
-        return {"ok": True, "path": str(dest), "downloaded": True}
+        from rpar.ml.world_bump import ensure_bump_vocab
+
+        vocab = ensure_bump_vocab()
+        return {"ok": True, "path": str(dest), "downloaded": True, "vocab": vocab}
     return {"ok": False, "reason": "download_failed", "path": str(dest)}
 
 

@@ -122,7 +122,10 @@ def keep_box(yolo_class: str, bbox: tuple[float, float, float, float], width: in
     if bw < 12.0 or bh < 8.0:
         return False
     cy = 0.5 * (y0 + y1)
+    cx = 0.5 * (x0 + x1)
     if cy < 0.28 * height:
+        return False
+    if cx < 0.08 * width or cx > 0.92 * width:
         return False
     area = bw * bh
     frac = area / max(1.0, float(width * height))
@@ -134,7 +137,8 @@ def keep_box(yolo_class: str, bbox: tuple[float, float, float, float], width: in
     if yolo_class == "speed_bump":
         return 0.002 <= frac <= 0.12 and (bw >= 0.12 * width or aspect >= 1.6)
     if yolo_class == "manhole_cover":
-        return 0.0009 <= frac <= 0.06 and 0.45 <= aspect <= 1.85
+        # Handlebar view flattens circular covers into wide ellipses.
+        return 0.0006 <= frac <= 0.08 and 0.35 <= aspect <= 4.2
     return False
 
 

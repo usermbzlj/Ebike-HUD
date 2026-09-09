@@ -136,7 +136,7 @@
         <button id="btnShare">分享包脱敏</button>
         <button id="btnEval">场景评估</button>
         <button id="btnErrorLib">错误案例库</button>
-        <button id="btnFieldVideo">YOLOPv2 实拍</button>
+        <button id="btnFieldVideo">实拍颠簸 AR</button>
         <button id="btnAnnotate">导出标注/CVAT</button>
         <button id="btnTrain">训练卡片</button>
       </div>
@@ -322,7 +322,7 @@
       $("repStatus").textContent = "error-lib items=" + (r.n_items ?? 0);
     };
     $("btnFieldVideo").onclick = async () => {
-      $("repStatus").textContent = "正在用 YOLOPv2 跑 Video/ 实拍（CPU 较慢，请等）…";
+      $("repStatus").textContent = "正在用 YOLO-World 颠簸检测 + YOLOPv2 道路跑 Video/ 实拍…";
       const cat = await fetch("/api/field-video").then(x => x.json());
       if (!cat.n_clips) {
         $("repPre").textContent = JSON.stringify(cat, null, 2);
@@ -330,21 +330,23 @@
         return;
       }
       const r = await fetch("/api/field-video?max_frames=90", {method:"POST"}).then(x => x.json());
-      $("repPre").textContent = JSON.stringify({n_ok: r.n_ok, prefer_yolop: r.prefer_yolop, m2: r.m2, clips: (r.results||[]).map(c => ({alias: c.alias, lighting: c.lighting, duration_s: c.duration_s, frames: c.run && c.run.frames, hybrid: c.run && c.run.hybrid, engine: c.run && c.run.engine, tracks: c.run && c.run.n_unique_tracks, confirmed: c.run && c.run.n_confirmed_tracks, alerts: c.run && c.run.n_alerts_fired, road: c.run && c.run.road_frame_share}))}, null, 2);
+      $("repPre").textContent = JSON.stringify({n_ok: r.n_ok, prefer_yolop: r.prefer_yolop, prefer_bump: r.prefer_bump, m2: r.m2, clips: (r.results||[]).map(c => ({alias: c.alias, lighting: c.lighting, duration_s: c.duration_s, frames: c.run && c.run.frames, hybrid: c.run && c.run.hybrid, engine: c.run && c.run.engine, tracks: c.run && c.run.n_unique_tracks, confirmed: c.run && c.run.n_confirmed_tracks, alerts: c.run && c.run.n_alerts_fired, semantics: c.run && c.run.confirmed_semantics, road: c.run && c.run.road_frame_share}))}, null, 2);
       const box = $("fieldStills");
       box.innerHTML = "";
       (r.results || []).forEach(c => {
-        (c.yolop_stills || []).forEach(p => {
+        const stills = [].concat((c.run && c.run.stills) || [], c.yolop_stills || []);
+        stills.forEach(p => {
           const name = String(p).split(/[/\\\\]/).pop();
+          if (!name || !/\.jpg$/i.test(name)) return;
           const img = document.createElement("img");
           img.src = "/field-video/" + c.alias + "/" + name;
-          img.alt = c.alias;
+          img.alt = c.alias + " " + name;
           img.style.maxWidth = "320px";
           img.style.border = "1px solid #1d2a33";
           box.appendChild(img);
         });
       });
-      $("repStatus").textContent = "实拍 " + (r.n_ok||0) + "/" + ((r.results||[]).length) + " 段；M2 " + ((r.m2 && r.m2.pass) ? "通过" : "未过") + "（绿=可行驶，橙=车辆遮挡）";
+      $("repStatus").textContent = "实拍 " + (r.n_ok||0) + "/" + ((r.results||[]).length) + " 段；M2 " + ((r.m2 && r.m2.pass) ? "通过" : "未过") + "（橙红=大坑/下沉井盖/减速带，绿=可行驶）";
     };
     $("btnOffset").onclick = async () => {
       const r = await fetch("/api/replay/offset").then(x => x.json());

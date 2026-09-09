@@ -190,18 +190,19 @@ class RealtimePipeline(
             val cover = occlusionCoverRatio(lastOccPolygons, frame.meta.width, frame.meta.height)
             if (cover >= 0.08) {
                 status = PerceptionStatus.OCCLUDED
-                allowNew = false
-            } else if (status == PerceptionStatus.OCCLUDED) {
-                allowNew = false
             }
+            allowNew = allowNewObservations(status, sel.q.globalQuality.usable, true, cover)
         } else {
             droppedInfer++
-            lastObservations = emptyList()
             didInfer = false
+            observations = lastObservations
         }
-
+        val qualityOk = sel.q.globalQuality.usable &&
+            status != PerceptionStatus.SEVERE_BLUR &&
+            status != PerceptionStatus.LENS_CONTAMINATION &&
+            status != PerceptionStatus.PERCEPTION_LIMITED
         val tracks = tracker.update(
-            observations, t0, allowNewHighConf = allowNew, qualityOk = allowNew, dtS = dt,
+            observations, t0, allowNewHighConf = allowNew, qualityOk = qualityOk, dtS = dt,
             cameraYawRate = frame.angularVelocity?.getOrNull(2) ?: 0.0,
             frameW = frame.meta.width.toDouble(),
         )
@@ -337,7 +338,7 @@ class RealtimePipeline(
         lastOccPolygons.forEachIndexed { i, poly ->
             if (poly.size < 3) return@forEachIndexed
             prims += RenderPrimitive(
-                -7 - i, poly, floatArrayOf(1.0f, 0.55f, 0.12f, 0.58f),
+                -7 - i, poly, floatArrayOf(0.55f, 0.58f, 0.68f, 0.42f),
                 dashed = false, thickness = 2f,
                 label = if (uiMode == UiMode.RESEARCH) "vehicle" else null,
                 labelPriority = 86, fade = 0.7f, kind = "occlusion",
@@ -398,7 +399,9 @@ class RealtimePipeline(
             if (obj.lifecycleState == LifecycleState.EXPIRED) continue
             val info = obj.semanticType in EnumCopy.INFO_LAYER
             if (info && !showInfoLayer) continue
-            if (!info && obj.lifecycleState == LifecycleState.TRACKED) continue
+            if (!info && obj.lifecycleState == LifecycleState.TRACKED) {
+                if (!EnumCopy.isBumpHazard(obj.semanticType, obj.geometryType, obj.objectState)) continue
+            }
             if (!info && obj.lifecycleState == LifecycleState.CANDIDATE) continue
             val fade0 = when (obj.lifecycleState) {
                 LifecycleState.PASSED -> 0.35f

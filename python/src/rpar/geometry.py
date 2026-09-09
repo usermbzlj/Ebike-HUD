@@ -8,7 +8,7 @@ from dataclasses import replace
 import numpy as np
 
 from rpar.config import GeometryConfig
-from rpar.enums import Direction
+from rpar.enums import Direction, GeometryType, LifecycleState, SemanticType
 from rpar.maskutil import ground_contact, polygon_area
 from rpar.models import Intrinsics, MountProfile
 from rpar.tracking import TrackInternal
@@ -233,6 +233,11 @@ def fit_mount_from_distance_markers(
 
 
 def should_mark_passed(tr: TrackInternal, dist: float | None, prev_dist: float | None, near_m: float) -> bool:
+    bump = tr.semantic in {SemanticType.POTHOLE, SemanticType.SPEED_BUMP} or (
+        tr.semantic == SemanticType.MANHOLE_COVER and tr.geometry == GeometryType.CONCAVE
+    )
+    if bump and tr.state not in {LifecycleState.CONFIRMED, LifecycleState.ALERTED}:
+        return False
     if dist is None:
         return False
     if dist < near_m and tr.mean[3] > 40:  # contact point moving down the image fast

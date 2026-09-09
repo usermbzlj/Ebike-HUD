@@ -409,7 +409,8 @@ def run_video_file(
         "frames": i,
         "out": str(out_dir / "overlay.mp4"),
         "stills": stills,
-        "engine": sidecar.get("backend", cap_info.get("backend")),
+        "engine": (cap_info.get("bump") or {}).get("backend") or sidecar.get("backend", cap_info.get("backend")),
+        "bump": cap_info.get("bump"),
         "hybrid": bool(cap_info.get("hybrid")),
         "width": w,
         "height": h,
@@ -425,6 +426,11 @@ def run_video_file(
         "confirmed_semantics": sem_counts,
         "n_rough_broken_confirmed": sum(1 for s in confirmed_sem.values() if s == SemanticType.ROUGH_BROKEN.value),
         "n_info_confirmed": sum(1 for s in confirmed_sem.values() if s in _INFO_SEMANTICS),
+        "n_bump_confirmed": sum(
+            1
+            for s in confirmed_sem.values()
+            if s in {SemanticType.POTHOLE.value, SemanticType.SPEED_BUMP.value, SemanticType.MANHOLE_COVER.value}
+        ),
         "n_unknown_confirmed": sum(1 for s in confirmed_sem.values() if s == SemanticType.UNKNOWN_ANOMALY.value),
         "n_confirmed_with_distance": len(confirmed_dist_ids),
         "n_confirmed_with_direction": len(confirmed_dir_ids),

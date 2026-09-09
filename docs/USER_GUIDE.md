@@ -73,7 +73,7 @@ rpar serve
 rpar field-video --out artifacts/field_video
 ```
 
-控制台「YOLOPv2 实拍」会编目并用启发式 + YOLOPv2（若本地有 ONNX）+ **YOLO-World 颠簸检测**（若 `models/yolo-world/` 或微调权重存在）跑 AR。mp4 本身不进 Git。YOLOPv2 只负责可行驶区域和车辆，不是坑/井盖/减速带网。
+控制台「实拍颠簸 AR」会编目并用启发式 + YOLOPv2（若本地有 ONNX）+ **YOLO-World 颠簸检测**（若 `models/yolo-world/` 或微调权重存在）跑 AR。大模型本帧成功推理时会清掉启发式坑/带/盖（含 0 框），避免斑马线假阳性。mp4 本身不进 Git。YOLOPv2 只负责可行驶区域和车辆，不是坑/井盖/减速带网。
 
 ## 用手机拍训练视频（大坑 / 下沉井盖 / 减速带）
 

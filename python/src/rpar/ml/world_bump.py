@@ -36,11 +36,16 @@ def default_teacher_path() -> Path:
     return repo_root() / "models" / "yolo-world" / TEACHER_NAME
 
 
+def default_vocab_path() -> Path:
+    return repo_root() / "models" / "yolo-world" / "rpar-bump-vocab.pt"
+
+
 def default_finetuned_paths() -> list[Path]:
     pkg = repo_root() / "models" / "bump-world-0.1.0"
     return [pkg / name for name in FINETUNED_NAMES] + [
         pkg / "train" / "weights" / "best.pt",
         repo_root() / "artifacts" / "bump_train" / "train" / "weights" / "best.pt",
+        default_vocab_path(),
     ]
 
 
@@ -57,12 +62,32 @@ def resolve_bump_weights(path: Path | None = None) -> Path | None:
     return None
 
 
+def _is_open_vocab(weights: Path) -> bool:
+    n = weights.name.lower()
+    return "worldv" in n or n.endswith("-world.pt") or "-world-" in n
+
+
 def weights_available(path: Path | None = None) -> bool:
     return resolve_bump_weights(path) is not None
 
 
-def _is_open_vocab(weights: Path) -> bool:
-    return "world" in weights.name.lower() or "world" in str(weights).lower()
+def ensure_bump_vocab() -> dict:
+    """Freeze YOLO-World prompts into a local detect checkpoint (no CLIP at runtime)."""
+    dest = default_vocab_path()
+    if dest.is_file() and dest.stat().st_size > 1_000_000:
+        return {"ok": True, "path": str(dest), "saved": False}
+    teacher = default_teacher_path()
+    if not teacher.is_file():
+        return {"ok": False, "reason": "teacher_missing", "path": str(dest)}
+    if find_spec("ultralytics") is None:
+        return {"ok": False, "reason": "ultralytics_missing", "path": str(dest)}
+    from ultralytics import YOLOWorld
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    model = YOLOWorld(str(teacher))
+    model.set_classes(list(WORLD_INFER_PROMPTS))
+    model.save(str(dest))
+    return {"ok": dest.is_file() and dest.stat().st_size > 1_000_000, "path": str(dest), "saved": True}
 
 
 class WorldBumpEngine:
@@ -84,6 +109,12 @@ class WorldBumpEngine:
 
             self._model = YOLOWorld(str(resolved))
             self._model.set_classes(list(WORLD_INFER_PROMPTS))
+            vocab = default_vocab_path()
+            if not vocab.is_file():
+                try:
+                    self._model.save(str(vocab))
+                except Exception:
+                    pass
         else:
             from ultralytics import YOLO
 

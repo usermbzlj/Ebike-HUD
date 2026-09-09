@@ -96,10 +96,12 @@ class AlertPolicy(val cfg: AlertConfig, var enabled: Boolean = true) {
         if (obj.lifecycleState != LifecycleState.CONFIRMED && obj.lifecycleState != LifecycleState.ALERTED) return reject("not_confirmed")
         if (cfg.pauseOnDegraded && status in setOf(
                 PerceptionStatus.SEVERE_BLUR,
-                PerceptionStatus.OCCLUDED,
                 PerceptionStatus.LENS_CONTAMINATION,
                 PerceptionStatus.PERCEPTION_LIMITED,
             )
+        ) return reject("quality_pause")
+        if (cfg.pauseOnDegraded && status == PerceptionStatus.OCCLUDED &&
+            !EnumCopy.isBumpHazard(obj.semanticType, obj.geometryType, obj.objectState)
         ) return reject("quality_pause")
         if (!geometryValid) return reject("geometry_invalid")
         if (obj.semanticType in EnumCopy.INFO_LAYER) return reject("info_layer")
@@ -109,10 +111,12 @@ class AlertPolicy(val cfg: AlertConfig, var enabled: Boolean = true) {
         if (obj.severity.code >= 0 && obj.severity.code < cfg.minSeverity && obj.severity != Severity.UNKNOWN) {
             return reject("severity_too_low")
         }
-        if (obj.visibilityConfidence < cfg.minVisibility) return reject("visibility_gate")
+        if (obj.visibilityConfidence < cfg.minVisibility &&
+            !EnumCopy.isBumpHazard(obj.semanticType, obj.geometryType, obj.objectState)
+        ) return reject("visibility_gate")
         if (obj.effectiveConfidence < cfg.minEffective) {
             val bumpEarly = EnumCopy.isBumpHazard(obj.semanticType, obj.geometryType, obj.objectState) &&
-                obj.modelConfidence >= 0.18
+                obj.modelConfidence >= 0.08
             if (!bumpEarly) return reject("effective_gate")
         }
         if (obj.pathRelevance < cfg.minPathRelevance) return reject("off_corridor")
@@ -126,7 +130,7 @@ class AlertPolicy(val cfg: AlertConfig, var enabled: Boolean = true) {
         var suppression = 1.0
         if (obj.semanticType == SemanticType.UNKNOWN_ANOMALY) suppression *= 0.55
         var score = vs * sev * obj.pathRelevance * urg * suppression
-        if (bump) score = maxOf(score, obj.modelConfidence * obj.pathRelevance * urg * 0.90)
+        if (bump) score = maxOf(score, obj.modelConfidence * obj.pathRelevance)
         val threshold = if (bump) cfg.bumpScoreThreshold else cfg.scoreThreshold
         snapshot.put("visual_score", vs)
         snapshot.put("severity_score", sev)

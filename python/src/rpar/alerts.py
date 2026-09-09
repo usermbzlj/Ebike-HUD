@@ -143,10 +143,15 @@ class AlertPolicy:
             return reject("not_confirmed")
         if self.cfg.pause_on_degraded and status in {
             PerceptionStatus.SEVERE_BLUR,
-            PerceptionStatus.OCCLUDED,
             PerceptionStatus.LENS_CONTAMINATION,
             PerceptionStatus.PERCEPTION_LIMITED,
         }:
+            return reject("quality_pause")
+        if (
+            self.cfg.pause_on_degraded
+            and status == PerceptionStatus.OCCLUDED
+            and not is_bump_hazard(obj.semantic_type, obj.geometry_type, obj.object_state)
+        ):
             return reject("quality_pause")
         if not geometry_valid:
             return reject("geometry_invalid")
@@ -158,10 +163,12 @@ class AlertPolicy:
             return reject("normal_or_flat")
         if int(obj.severity) >= 0 and int(obj.severity) < self.cfg.min_severity and obj.severity != Severity.UNKNOWN:
             return reject("severity_too_low")
-        if obj.visibility_confidence < self.cfg.min_visibility:
+        if obj.visibility_confidence < self.cfg.min_visibility and not is_bump_hazard(
+            obj.semantic_type, obj.geometry_type, obj.object_state
+        ):
             return reject("visibility_gate")
         if obj.effective_confidence < self.cfg.min_effective and not (
-            is_bump_hazard(obj.semantic_type, obj.geometry_type, obj.object_state) and obj.model_confidence >= 0.18
+            is_bump_hazard(obj.semantic_type, obj.geometry_type, obj.object_state) and obj.model_confidence >= 0.08
         ):
             return reject("effective_gate")
         if obj.path_relevance < self.cfg.min_path_relevance:
@@ -185,7 +192,7 @@ class AlertPolicy:
             suppression *= 0.55
         score = vs * sev * obj.path_relevance * urg * suppression
         if bump:
-            score = max(score, float(obj.model_confidence) * obj.path_relevance * urg * 0.90)
+            score = max(score, float(obj.model_confidence) * obj.path_relevance)
         threshold = self.cfg.bump_score_threshold if bump else self.cfg.score_threshold
         snapshot["visual_score"] = vs
         snapshot["severity_score"] = sev

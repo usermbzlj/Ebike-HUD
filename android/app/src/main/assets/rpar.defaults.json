@@ -48,7 +48,8 @@
     "min_visibility": 0.40,
     "min_effective": 0.48,
     "realert_severity_jump": 1,
-    "pause_on_degraded": true
+    "pause_on_degraded": true,
+    "bump_score_threshold": 0.08
   },
   "render": {
     "riding_max_labels": 5,

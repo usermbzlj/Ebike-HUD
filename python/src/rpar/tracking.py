@@ -235,26 +235,29 @@ class TrackEngine:
     def _advance_lifecycle(self, tr: TrackInternal, now_ns: int, observed: bool, quality_ok: bool) -> None:
         age = (now_ns - tr.created_ns) / 1e9
         need = self.cfg.min_confirm_hits
+        bump = tr.semantic in {SemanticType.POTHOLE, SemanticType.SPEED_BUMP} or (
+            tr.semantic == SemanticType.MANHOLE_COVER and tr.geometry == GeometryType.CONCAVE
+        )
         if tr.semantic == SemanticType.UNKNOWN_ANOMALY:
             need += self.cfg.unknown_anomaly_extra_hits
         if tr.semantic == SemanticType.ROUGH_BROKEN:
             need += 3
-        if tr.semantic in {SemanticType.POTHOLE, SemanticType.SPEED_BUMP} or (
-            tr.semantic == SemanticType.MANHOLE_COVER and tr.geometry == GeometryType.CONCAVE
-        ):
+        if bump:
             need = min(need, max(2, int(self.cfg.bump_confirm_hits)))
         if tr.state == LifecycleState.CANDIDATE:
-            if not observed:
+            tracked_age = 0.08 if bump else self.cfg.confirm_window_s * 0.4
+            if tr.hits >= 2 and age >= tracked_age:
+                tr.state = LifecycleState.TRACKED
+                self._history.append((tr.track_id, tr.state, "associated"))
+            elif not observed:
                 if (now_ns - tr.last_ns) / 1e9 > self.cfg.candidate_max_age_s:
                     tr.state = LifecycleState.EXPIRED
                     tr.expire_reason = "candidate_timeout"
                     self._history.append((tr.track_id, tr.state, tr.expire_reason))
                 return
-            if tr.hits >= 2 and age >= self.cfg.confirm_window_s * 0.4:
-                tr.state = LifecycleState.TRACKED
-                self._history.append((tr.track_id, tr.state, "associated"))
-        if tr.state == LifecycleState.TRACKED and observed and quality_ok:
-            if tr.hits >= need and age >= self.cfg.confirm_window_s:
+        if tr.state == LifecycleState.TRACKED and quality_ok:
+            conf_age = 0.12 if bump else self.cfg.confirm_window_s
+            if tr.hits >= need and age >= conf_age and (observed or bump):
                 tr.state = LifecycleState.CONFIRMED
                 tr.confirmed_ns = now_ns
                 self._history.append((tr.track_id, tr.state, "stable_visible"))
