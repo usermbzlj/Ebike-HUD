@@ -79,6 +79,7 @@ def write_bump_card(out_dir: Path, **kwargs: Any) -> Path:
         f"- n_train_images: {kwargs.get('n_train_images', 0)}\n"
         f"- trained: {kwargs.get('trained', False)}\n"
         f"- weights: `{kwargs.get('weights', '')}`\n\n"
+        "Phone ONNX default `imgsz=640` matches desktop YOLO-World infer. "
         "Not Camera2 1080p60 GT. Fine-tune quality tracks how many real 大坑 / 下沉井盖 / 减速带 clips you deliver.\n"
     )
     dest = out_dir / "MODEL_CARD.md"
@@ -259,18 +260,30 @@ def _export_ultralytics(model: Any, *, imgsz: int, nms: bool) -> tuple[Path | No
         except Exception as exc:
             tflite_err = str(exc)[:400]
     try:
-        exported = model.export(format="onnx", imgsz=int(imgsz), simplify=True, dynamic=False)
+        exported = model.export(
+            format="onnx",
+            imgsz=int(imgsz),
+            simplify=True,
+            dynamic=False,
+            nms=bool(nms),
+        )
         path = Path(str(exported))
         if path.is_file():
-            return path, False, tflite_err
-    except Exception as exc:
-        return None, False, f"tflite={tflite_err}; onnx={str(exc)[:400]}"
+            return path, bool(nms), tflite_err
+    except Exception:
+        try:
+            exported = model.export(format="onnx", imgsz=int(imgsz), simplify=True, dynamic=False)
+            path = Path(str(exported))
+            if path.is_file():
+                return path, False, tflite_err
+        except Exception as exc:
+            return None, False, f"tflite={tflite_err}; onnx={str(exc)[:400]}"
     return None, False, tflite_err
 
 
 def export_bump_tflite(
     *,
-    imgsz: int = 320,
+    imgsz: int = 640,
     nms: bool = True,
     weights: Path | None = None,
     out_dir: Path | None = None,

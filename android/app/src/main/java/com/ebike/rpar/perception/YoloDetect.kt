@@ -185,15 +185,15 @@ object YoloDetect {
         if (bw < 12f || bh < 8f) return false
         val cy = 0.5f * (box[1] + box[3])
         val cx = 0.5f * (box[0] + box[2])
-        if (cy < 0.28f * height) return false
+        if (cy < 0.16f * height) return false
         if (cx < 0.08f * width || cx > 0.92f * width) return false
         val frac = (bw * bh) / max(1f, width.toFloat() * height)
         if (frac > 0.20f || bw > 0.88f * width) return false
         val aspect = bw / max(bh, 1f)
         return when (kind) {
-            "pothole" -> frac in 0.0012f..0.12f && aspect < 3.5f
-            "speed_bump" -> frac in 0.002f..0.12f && (bw >= 0.12f * width || aspect >= 1.6f)
-            "manhole_cover" -> frac in 0.0006f..0.08f && aspect in 0.35f..4.2f
+            "pothole" -> frac in 0.00035f..0.12f && aspect < 3.5f
+            "speed_bump" -> frac in 0.0008f..0.12f && (bw >= 0.10f * width || aspect >= 1.6f)
+            "manhole_cover" -> frac in 0.00035f..0.08f && aspect in 0.35f..4.2f
             else -> false
         }
     }
@@ -284,6 +284,16 @@ object YoloDetect {
             }
         } catch (_: Throwable) {
             DEFAULT_NAMES
+        }
+    }
+
+    fun readConf(labels: File?, default: Float = 0.08f): Float {
+        if (labels == null || !labels.exists()) return default
+        return try {
+            val v = JSONObject(labels.readText()).optDouble("conf", default.toDouble())
+            v.toFloat().coerceIn(0.01f, 0.9f)
+        } catch (_: Throwable) {
+            default
         }
     }
 

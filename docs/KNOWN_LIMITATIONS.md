@@ -28,7 +28,7 @@
 
 桌面可选用 YOLOPv2 ONNX（`models/yolopv2/YOLOPv2.onnx`，约 156 MB，不入库）作为**可行驶区域 + 车辆遮挡** sidecar。权重来自 BDD 风格驾驶场景，输入 640 动态 letterbox，在 CPU 上跑。它**不是**坑洞/井盖/减速带检测器，也不是 PKC110 上的 LiteRT 包；空输出不得清空 HUD。
 
-桌面颠簸三类改走 **YOLO-World** 开集检测（`models/yolo-world/yolov8m-worldv2.pt`，不入库），提示词仅为大坑 / 减速带 / 下沉井盖，可用 `Video/train/inbox` 自采微调。推理成功（含本帧 0 框）会清掉启发式坑/带/盖，避免斑马线/反光假阳性；仅当大模型加载或推理抛错时才回退启发式。可行驶区域绿填会在颠簸轮廓处挖空。手机端 `rpar export-bump-tflite` 在 Windows 上导出 ONNX（Ultralytics LiteRT 仅 Linux/macOS），由 ONNX Runtime 跑同一套框；这仍不是 PKC110 真值训练的量化实例网，也未在真机上证明 p95 ≤150 ms。
+桌面颠簸三类改走 **YOLO-World** 开集检测（`models/yolo-world/yolov8m-worldv2.pt`，不入库），提示词仅为大坑 / 减速带 / 下沉井盖，可用 `Video/train/inbox` 自采微调。推理成功（含本帧 0 框）会清掉启发式坑/带/盖，避免斑马线/反光假阳性；仅当大模型加载或推理抛错时才回退启发式。可行驶区域绿填会在颠簸轮廓处挖空。手机端 `rpar export-bump-tflite` 默认导出 **640²** ONNX（与桌面 `imgsz=640` 对齐；Ultralytics LiteRT 仅 Linux/macOS），由 ONNX Runtime（优先 NNAPI）跑同一套框。keep-box 放行 15–20 m 中大型目标，且不再用可行驶多边形裁掉颠簸框。这仍不是 PKC110 真值训练的量化实例网，也未在真机上证明 p95 ≤150 ms。
 
 桌面黄金回归使用合成道路（已知距离与方位），用来锁住跟踪、门控、几何与提醒策略；不能替代 PKC110 实路 10 h 误提醒统计。
 

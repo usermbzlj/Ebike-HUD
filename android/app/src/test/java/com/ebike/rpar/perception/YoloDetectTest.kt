@@ -52,6 +52,10 @@ class YoloDetectTest {
         assertFalse(YoloDetect.keepBox("pothole", floatArrayOf(0f, 120f, 959f, 534f), 960, 540))
         assertTrue(YoloDetect.keepBox("pothole", floatArrayOf(200f, 180f, 380f, 300f), 640, 360))
         assertTrue(YoloDetect.keepBox("manhole_cover", floatArrayOf(300f, 220f, 420f, 300f), 960, 540))
+        // 1080p ~15 m 中大型 pit near the horizon (spec first-confirm floor).
+        assertTrue(YoloDetect.keepBox("pothole", floatArrayOf(900f, 200f, 960f, 248f), 1920, 1080))
+        assertTrue(YoloDetect.keepBox("speed_bump", floatArrayOf(620f, 240f, 1280f, 280f), 1920, 1080))
+        assertTrue(YoloDetect.keepBox("manhole_cover", floatArrayOf(880f, 190f, 960f, 230f), 1920, 1080))
     }
 
     @Test
@@ -59,5 +63,16 @@ class YoloDetectTest {
         assertTrue(YoloDetect.isYoloDetectShape(intArrayOf(1, 300, 6)))
         assertTrue(YoloDetect.isYoloDetectShape(intArrayOf(1, 7, 8400)))
         assertFalse(YoloDetect.isYoloDetectShape(intArrayOf(1, 48, 96, 6)))
+    }
+
+    @Test
+    fun decodeBakedNms300x6() {
+        val names = listOf("pothole", "large pothole", "speed bump", "sunken manhole cover", "manhole cover", "")
+        val rows = 300
+        val out = FloatArray(rows * 6)
+        out[0] = 100f; out[1] = 120f; out[2] = 180f; out[3] = 200f; out[4] = 0.91f; out[5] = 3f
+        val dets = YoloDetect.decode(out, intArrayOf(1, rows, 6), names, 0.08f)
+        assertEquals(1, dets.size)
+        assertEquals("sunken manhole cover", dets[0].name)
     }
 }

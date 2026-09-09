@@ -153,4 +153,36 @@ class HybridEngineMergeTest {
         assertTrue(m.observations.any { it.semanticType == SemanticType.MANHOLE_COVER })
         assertEquals(InferenceBackend.CPU, m.backend)
     }
+
+    @Test
+    fun bumpSidecarKeepsOffRoadPitAndDropsOccluded() {
+        val road = listOf(0f to 30f, 20f to 30f, 20f to 40f, 0f to 40f)
+        val occ = listOf(listOf(50f to 50f, 80f to 50f, 80f to 80f, 50f to 80f))
+        val primary = PerceptionResult(
+            timestampNs = 1,
+            sourceFrameId = 0,
+            roadPolygon = road,
+            occludedPolygons = occ,
+            observations = listOf(obs(SemanticType.POTHOLE, 8f, 8f, 16f, 16f)),
+            backend = InferenceBackend.HEURISTIC,
+            latencyMs = 4.0,
+            inputSizes = listOf(intArrayOf(96, 48)),
+        )
+        val sidecar = PerceptionResult(
+            timestampNs = 1,
+            sourceFrameId = 0,
+            roadPolygon = emptyList(),
+            occludedPolygons = emptyList(),
+            observations = listOf(
+                obs(SemanticType.POTHOLE, 4f, 4f, 12f, 12f),
+                obs(SemanticType.SPEED_BUMP, 55f, 55f, 70f, 70f),
+            ),
+            backend = InferenceBackend.CPU,
+            latencyMs = 11.0,
+            inputSizes = listOf(intArrayOf(640, 640)),
+        )
+        val m = HybridEngine.merge(primary, sidecar, null, replacesBump = true)
+        assertTrue(m.observations.any { it.semanticType == SemanticType.POTHOLE && it.bbox[0] == 4f })
+        assertTrue(m.observations.none { it.semanticType == SemanticType.SPEED_BUMP })
+    }
 }

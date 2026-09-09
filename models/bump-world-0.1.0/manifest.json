@@ -9,8 +9,8 @@
   },
   "input_spec": {
     "detect": {
-      "width": 320,
-      "height": 320,
+      "width": 640,
+      "height": 640,
       "layout": "NCHW",
       "norm": "0-1"
     },
@@ -25,5 +25,8 @@
       "manhole_cover"
     ]
   },
-  "sha256": {}
+  "sha256": {
+    "labels.json": "70de5d015a745b53696ba5b338c898f8c5380e3068e6185af58d8011e4f5e900",
+    "MODEL_CARD.md": "62bbfe5692ea7153474383110850d62bcd981fa53242273beb5be9b3ca0e3f1f"
+  }
 }
