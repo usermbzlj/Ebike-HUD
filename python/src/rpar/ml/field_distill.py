@@ -73,8 +73,11 @@ def distill_from_videos(
             if n < 2:
                 cap.release()
                 continue
-            for k in range(frames_per_clip):
-                idx = int((k + 0.5) * n / frames_per_clip)
+            fps = float(cap.get(cv2.CAP_PROP_FPS) or 30) or 30.0
+            fpc = int(max(8, min(int(frames_per_clip), round((n / fps) / 8.0) or 8)))
+            print(f"[roadseg] {path.name}: {fpc} teacher frames", flush=True)
+            for k in range(fpc):
+                idx = int((k + 0.5) * n / fpc)
                 cap.set(cv2.CAP_PROP_POS_FRAMES, float(min(n - 1, idx)))
                 ok, bgr = cap.read()
                 if not ok:
@@ -90,8 +93,14 @@ def distill_from_videos(
         x = np.concatenate(xs, axis=0)
         y = np.concatenate(ys, axis=0)
         rng = np.random.default_rng(7)
-        idx = rng.choice(x.shape[0], size=min(12000, x.shape[0]), replace=False)
-        hold = rng.choice(x.shape[0], size=min(2000, x.shape[0]), replace=False)
+        n = int(x.shape[0])
+        hold_n = min(4000, max(1, n // 10)) if n > 16 else n
+        hold = rng.choice(n, size=hold_n, replace=False)
+        remain = np.setdiff1d(np.arange(n), hold, assume_unique=False)
+        if remain.size == 0:
+            idx = hold
+        else:
+            idx = rng.choice(remain, size=min(40000, int(remain.size)), replace=False)
         weights = fit_one_vs_rest(x[idx], y[idx])
         acc = float((predict_labels(x[hold], weights) == y[hold]).mean())
         student = DualScaleSegEngine(weights)

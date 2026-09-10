@@ -71,8 +71,32 @@ def compose(bgr: np.ndarray, view: PerceptionView, ui_mode: UiMode = UiMode.RIDI
         img = np.clip(img.astype(np.float32) * 0.72, 0, 255).astype(np.uint8)
     prims = sorted(view.primitives, key=lambda p: p.label_priority, reverse=True)
     holes = [p for p in prims if p.kind in _ROAD_HOLE_KINDS and len(p.polygon) >= 3]
-    for p in prims:
-        draw_poly(img, p, holes=holes if p.kind == "road" else None)
+    roads = [p for p in prims if p.kind == "road"]
+    others = [p for p in prims if p.kind != "road"]
+    for p in roads:
+        draw_poly(img, p, holes=holes)
+    if others:
+        overlay = img.copy()
+        for p in others:
+            if len(p.polygon) < 3:
+                continue
+            pts = np.array(p.polygon, dtype=np.int32)
+            color = tuple(int(np.clip(c * 255, 0, 255)) for c in p.color_rgba[:3][::-1])
+            cv2.fillPoly(overlay, [pts], color)
+        cv2.addWeighted(overlay, 0.30, img, 0.70, 0, img)
+        for p in others:
+            if len(p.polygon) < 3:
+                continue
+            pts = np.array(p.polygon, dtype=np.int32)
+            color = tuple(int(np.clip(c * 255, 0, 255)) for c in p.color_rgba[:3][::-1])
+            if p.dashed:
+                for i in range(len(pts)):
+                    a = pts[i]
+                    b = pts[(i + 1) % len(pts)]
+                    if i % 2 == 0:
+                        cv2.line(img, tuple(a), tuple(b), color, max(1, int(p.thickness)), cv2.LINE_AA)
+            else:
+                cv2.polylines(img, [pts], True, color, max(1, int(p.thickness)), cv2.LINE_AA)
     for p in prims:
         draw_label(img, p)
     if ui_mode == UiMode.RESEARCH and view.quality is not None:

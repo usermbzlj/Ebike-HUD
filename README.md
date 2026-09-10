@@ -9,6 +9,7 @@
 | 产物 | 说明 |
 | --- | --- |
 | 桌面研究控制台 | `python -m rpar.apps.cli serve` → http://127.0.0.1:8765 |
+| 骑行视频手标 | `python -m rpar.apps.cli label` → http://127.0.0.1:8766 ，点选/框选 + SAM2 补框 |
 | 黄金视频回归 | `python -m rpar.apps.cli golden` 合成 1080p 道路、跑完整管线、输出 overlay + metrics |
 | Android 应用 | `android/`，`assembleDebug` 已在本机通过 |
 | 会话 schema | `session_<id>/` 目录 + `checksums.sha256` |
@@ -67,6 +68,8 @@ rpar impact-align <session_dir>
 rpar alert-rate session_a session_b --out artifacts/alert_rate.json
 rpar fetch-bump-model
 rpar train-bump
+rpar label
+rpar train-bump --skip-propose
 rpar export-bump-tflite
 rpar map-label rdd2022 D40
 rpar train-synth

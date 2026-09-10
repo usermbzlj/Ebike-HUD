@@ -41,6 +41,7 @@ PROMPT_TO_CLASS = {
     "settled manhole": "manhole_cover",
     "manhole cover": "manhole_cover",
     "manhole": "manhole_cover",
+    "sewer cover": "manhole_cover",
 }
 
 BUMP_TYPES = {SemanticType.POTHOLE, SemanticType.SPEED_BUMP, SemanticType.MANHOLE_COVER}
@@ -54,7 +55,16 @@ def map_det_name(raw: str) -> str | None:
     key = _norm(raw)
     if key in YOLO_NAMES:
         return key
-    return PROMPT_TO_CLASS.get(key)
+    hit = PROMPT_TO_CLASS.get(key)
+    if hit:
+        return hit
+    if "pothole" in key or "asphalt hole" in key or "road hole" in key:
+        return "pothole"
+    if "speed bump" in key or "speed hump" in key or "speedbreaker" in key:
+        return "speed_bump"
+    if "manhole" in key or "sewer cover" in key:
+        return "manhole_cover"
+    return None
 
 
 def clip_class_hint(name: str) -> str | None:
@@ -106,6 +116,53 @@ def refine_manhole_geometry(
     return GeometryType.FLAT, ObjectState.NORMAL, Severity.NONE
 
 
+def pothole_looks_like_vehicle(bbox: tuple[float, float, float, float], width: int, height: int) -> bool:
+    """Car/van rear projected onto the road: squarish, tall in the frame, not a pavement scar."""
+    x0, y0, x1, y1 = bbox
+    bw = max(0.0, x1 - x0)
+    bh = max(0.0, y1 - y0)
+    aspect = bw / max(bh, 1.0)
+    frac = (bw * bh) / max(1.0, float(width * height))
+    return 0.55 <= aspect <= 2.2 and bh >= 0.10 * height and frac >= 0.016
+
+
+def overlaps_vehicle_box(
+    bump: tuple[float, float, float, float],
+    vehicle: tuple[float, float, float, float],
+    *,
+    iou_thr: float = 0.12,
+    contain_thr: float = 0.45,
+) -> bool:
+    """True if a bump box is the vehicle (center inside, IoU, or mostly contained)."""
+    bx0, by0, bx1, by1 = bump
+    vx0, vy0, vx1, vy1 = vehicle
+    cx, cy = 0.5 * (bx0 + bx1), 0.5 * (by0 + by1)
+    if vx0 <= cx <= vx1 and vy0 <= cy <= vy1:
+        return True
+    if bbox_iou(bump, vehicle) >= iou_thr:
+        return True
+    ix0, iy0 = max(bx0, vx0), max(by0, vy0)
+    ix1, iy1 = min(bx1, vx1), min(by1, vy1)
+    if ix1 > ix0 and iy1 > iy0:
+        inter = (ix1 - ix0) * (iy1 - iy0)
+        bump_area = max(1.0, (bx1 - bx0) * (by1 - by0))
+        if inter / bump_area >= contain_thr:
+            return True
+    return False
+
+
+def suppress_bumps_on_vehicles(dets: list[dict], vehicles: list[tuple[float, float, float, float]]) -> list[dict]:
+    if not vehicles:
+        return dets
+    kept: list[dict] = []
+    for d in dets:
+        box = tuple(d["bbox"])
+        if any(overlaps_vehicle_box(box, v) for v in vehicles):
+            continue
+        kept.append(d)
+    return kept
+
+
 def keep_box(yolo_class: str, bbox: tuple[float, float, float, float], width: int, height: int) -> bool:
     x0, y0, x1, y1 = bbox
     bw = max(0.0, x1 - x0)
@@ -125,6 +182,8 @@ def keep_box(yolo_class: str, bbox: tuple[float, float, float, float], width: in
         return False
     aspect = bw / max(bh, 1.0)
     if yolo_class == "pothole":
+        if pothole_looks_like_vehicle(bbox, width, height):
+            return False
         return 0.00035 <= frac <= 0.12 and aspect < 3.5
     if yolo_class == "speed_bump":
         return 0.0008 <= frac <= 0.12 and (bw >= 0.10 * width or aspect >= 1.6)

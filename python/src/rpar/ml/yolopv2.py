@@ -33,6 +33,27 @@ def default_weights_path() -> Path:
     return Path.cwd() / "models" / "yolopv2" / WEIGHTS_NAME
 
 
+def fetch_weights(dest: Path | None = None) -> dict[str, Any]:
+    """Download YOLOPv2.onnx into models/yolopv2/ if missing."""
+    dest = Path(dest) if dest else default_weights_path()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.is_file() and dest.stat().st_size > 1_000_000:
+        return {"ok": True, "path": str(dest), "downloaded": False, "bytes": dest.stat().st_size}
+    import urllib.request
+
+    tmp = dest.with_suffix(".onnx.part")
+    try:
+        urllib.request.urlretrieve(RELEASE_URL, tmp)
+        if tmp.is_file() and tmp.stat().st_size > 1_000_000:
+            tmp.replace(dest)
+            return {"ok": True, "path": str(dest), "downloaded": True, "bytes": dest.stat().st_size}
+    except Exception as exc:
+        if tmp.is_file():
+            tmp.unlink()
+        return {"ok": False, "reason": str(exc)[:300], "path": str(dest)}
+    return {"ok": False, "reason": "download_failed", "path": str(dest)}
+
+
 def weights_available(path: Path | None = None) -> bool:
     p = Path(path) if path else default_weights_path()
     return p.is_file() and p.stat().st_size > 1_000_000

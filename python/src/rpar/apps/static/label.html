@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RPAR 路面标注</title>
+  <style>
+    :root {
+      --bg: #07090d;
+      --panel: #0b1016;
+      --line: #1d2a33;
+      --text: #e7eef3;
+      --muted: #8aa0ad;
+      --teal: #2ed3c6;
+      --gold: #e7c15a;
+      --danger: #d7786a;
+      --cover: #7db4ff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: "Segoe UI", "PingFang SC", sans-serif; }
+    body { display: grid; grid-template-rows: 52px 1fr 72px; }
+    header {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+    }
+    .brand { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+    .brand h1 { font-size: 14px; letter-spacing: 0.14em; margin: 0; }
+    .brand span { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    select, button {
+      background: #101820; color: var(--text); border: 1px solid var(--line);
+      border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 12px;
+    }
+    button.primary { border-color: var(--teal); color: var(--teal); }
+    button.warn { border-color: var(--gold); color: var(--gold); }
+    button.danger { border-color: var(--danger); color: var(--danger); }
+    button:disabled { opacity: 0.45; cursor: default; }
+    button.active { border-color: var(--teal); color: var(--teal); }
+    main { display: grid; grid-template-columns: 1fr 300px; min-height: 0; }
+    .stage { position: relative; background: #05070a; min-height: 0; overflow: hidden; }
+    #vid, #still, #overlay {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+    }
+    #vid, #still { object-fit: contain; background: #05070a; }
+    #still { display: none; }
+    #overlay { cursor: crosshair; }
+    .toast {
+      position: absolute; left: 16px; top: 14px; z-index: 3;
+      background: rgba(10,14,20,0.88); border: 1px solid var(--line); border-radius: 999px;
+      padding: 6px 12px; font-size: 12px; pointer-events: none;
+    }
+    .side { border-left: 1px solid var(--line); padding: 14px; overflow: auto; background: var(--panel); }
+    h2 { font-size: 11px; color: var(--muted); letter-spacing: 0.12em; margin: 14px 0 8px; }
+    h2:first-child { margin-top: 0; }
+    .row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .hint { color: var(--muted); font-size: 12px; line-height: 1.55; }
+    kbd {
+      font: 11px ui-monospace, Consolas, monospace; border: 1px solid var(--line);
+      border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; color: var(--text);
+    }
+    .keys { font-size: 12px; color: var(--muted); display: grid; gap: 5px; }
+    .keys div { display: flex; justify-content: space-between; gap: 8px; }
+    .obj {
+      border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; margin: 6px 0; font-size: 12px;
+    }
+    footer {
+      border-top: 1px solid var(--line); background: var(--panel); padding: 8px 14px 10px;
+      display: grid; grid-template-rows: 18px 28px; gap: 6px;
+    }
+    .time { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+    #rail { position: relative; height: 28px; }
+    #seek {
+      width: 100%; height: 28px; margin: 0; appearance: none; background: transparent; position: relative; z-index: 2;
+    }
+    #seek::-webkit-slider-runnable-track { height: 6px; background: #18222b; border-radius: 99px; }
+    #seek::-webkit-slider-thumb { appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--teal); margin-top: -3px; }
+    #marks { position: absolute; left: 0; right: 0; top: 11px; height: 6px; pointer-events: none; z-index: 1; }
+    .mark { position: absolute; top: -2px; width: 3px; height: 10px; background: var(--danger); border-radius: 1px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>RPAR LABEL</h1>
+      <span id="clipName">打开视频…</span>
+    </div>
+    <div class="row">
+      <select id="clipSel"></select>
+      <button id="btnPlay" class="primary">播放</button>
+      <button id="btnSave" class="primary">保存本帧</button>
+      <button id="btnTrack" class="warn">跟踪前后帧</button>
+      <button id="btnClear" class="danger">清空本帧</button>
+      <button id="btnPack">整理训练集</button>
+    </div>
+  </header>
+  <main>
+    <section class="stage" id="stage">
+      <video id="vid" playsinline></video>
+      <img id="still" alt="paused frame" />
+      <canvas id="overlay"></canvas>
+      <div class="toast" id="toast">空格暂停 · 左键点选或拖框 · 松手后 SAM 补全</div>
+    </section>
+    <aside class="side">
+      <h2>类别</h2>
+      <div class="row" id="clsRow">
+        <button data-cls="pothole" class="active">1 大坑</button>
+        <button data-cls="speed_bump">2 减速带</button>
+        <button data-cls="manhole_cover">3 井盖</button>
+      </div>
+      <h2>本帧目标</h2>
+      <div id="objList" class="hint">暂停后点路面目标。</div>
+      <h2>操作</h2>
+      <div class="keys">
+        <div><span>暂停 / 播放</span><kbd>Space</kbd></div>
+        <div><span>上一帧 / 下一帧</span><kbd>←</kbd> <kbd>→</kbd></div>
+        <div><span>±0.5 秒</span><kbd>Shift+←→</kbd></div>
+        <div><span>点选补全</span><span>左键单击</span></div>
+        <div><span>框选补全</span><span>左键拖动</span></div>
+        <div><span>负点击（去掉误区）</span><span>右键</span></div>
+        <div><span>保存本帧</span><kbd>Enter</kbd></div>
+        <div><span>跟踪前后约 1–2 秒</span><kbd>F</kbd></div>
+        <div><span>撤销预览框</span><kbd>Esc</kbd></div>
+        <div><span>倍速</span><kbd>[</kbd> <kbd>]</kbd></div>
+      </div>
+      <h2>说明</h2>
+      <p class="hint">先暂停，再点坑/带/盖。SAM2 只在你点过之后才跑，用来收紧框并顺着车把画面往前后跟几帧。人工框不会被 keep_box 丢掉。标完后不要再跑会覆盖标签的 <code>ride-train</code>，用 <code>rpar train-bump --skip-propose</code>。</p>
+      <p class="hint" id="samStat">SAM2：未加载（第一次点选时下载 tiny 权重）。</p>
+    </aside>
+  </main>
+  <footer>
+    <div class="time">
+      <span id="tLabel">00:00.00</span>
+      <span id="rateLabel">1.0×</span>
+      <span id="countLabel">0 帧已标</span>
+    </div>
+    <div id="rail">
+      <div id="marks"></div>
+      <input id="seek" type="range" min="0" max="1" step="0.001" value="0" />
+    </div>
+  </footer>
+<script>
+const COLORS = { pothole: "#d7786a", speed_bump: "#e7c15a", manhole_cover: "#7db4ff" };
+const LABELS = { pothole: "大坑", speed_bump: "减速带", manhole_cover: "井盖" };
+const vid = document.getElementById("vid");
+const still = document.getElementById("still");
+const canvas = document.getElementById("overlay");
+const ctx = canvas.getContext("2d");
+const toast = document.getElementById("toast");
+const seek = document.getElementById("seek");
+const marks = document.getElementById("marks");
+let meta = null;
+let cls = "pothole";
+let paused = true;
+let objects = [];
+let draft = null;
+let points = [];
+let pointLabels = [];
+let drag = null;
+let busy = false;
+let labeled = [];
+let rates = [0.25, 0.5, 1, 1.5, 2];
+let rateI = 2;
+
+function say(msg) { toast.textContent = msg; }
+function fmt(t) {
+  const s = Math.max(0, t || 0);
+  const m = Math.floor(s / 60);
+  const r = s - m * 60;
+  return `${String(m).padStart(2,"0")}:${r.toFixed(2).padStart(5,"0")}`;
+}
+async function jget(url) { const r = await fetch(url); return r.json(); }
+async function jpost(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return r.json();
+}
+function idxOf() {
+  if (!meta) return 0;
+  return Math.max(0, Math.min(meta.n - 1, Math.round(vid.currentTime * meta.fps)));
+}
+function mapRect() {
+  const rect = canvas.getBoundingClientRect();
+  const vw = meta.width, vh = meta.height;
+  const scale = Math.min(rect.width / vw, rect.height / vh);
+  const dw = vw * scale, dh = vh * scale;
+  return { ox: (rect.width - dw) / 2, oy: (rect.height - dh) / 2, scale, rect };
+}
+function evXY(ev) {
+  const m = mapRect();
+  const x = (ev.clientX - m.rect.left - m.ox) / m.scale;
+  const y = (ev.clientY - m.rect.top - m.oy) / m.scale;
+  return [Math.max(0, Math.min(meta.width, x)), Math.max(0, Math.min(meta.height, y))];
+}
+function draw() {
+  canvas.width = canvas.clientWidth;
+  canvas.height = canvas.clientHeight;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!meta) return;
+  const m = mapRect();
+  const boxes = objects.map(o => ({ ...o, alpha: 1 }));
+  if (draft) boxes.push({ class: cls, bbox: draft, alpha: 0.95, preview: true });
+  for (const o of boxes) {
+    const [x0,y0,x1,y1] = o.bbox;
+    const c = COLORS[o.class] || "#fff";
+    ctx.save();
+    ctx.strokeStyle = c;
+    ctx.globalAlpha = o.alpha || 1;
+    ctx.lineWidth = o.preview ? 2 : 2.5;
+    ctx.setLineDash(o.preview ? [6,4] : []);
+    ctx.strokeRect(m.ox + x0 * m.scale, m.oy + y0 * m.scale, (x1-x0)*m.scale, (y1-y0)*m.scale);
+    ctx.fillStyle = c;
+    ctx.globalAlpha = 0.18;
+    ctx.fillRect(m.ox + x0 * m.scale, m.oy + y0 * m.scale, (x1-x0)*m.scale, (y1-y0)*m.scale);
+    ctx.globalAlpha = 1;
+    ctx.font = "12px Segoe UI";
+    ctx.fillStyle = c;
+    ctx.fillText(LABELS[o.class] || o.class, m.ox + x0 * m.scale + 4, m.oy + y0 * m.scale - 6);
+    ctx.restore();
+  }
+  for (let i = 0; i < points.length; i++) {
+    const [x,y] = points[i];
+    ctx.beginPath();
+    ctx.arc(m.ox + x * m.scale, m.oy + y * m.scale, 5, 0, Math.PI*2);
+    ctx.fillStyle = pointLabels[i] === 0 ? "#888" : varTeal();
+    ctx.fill();
+  }
+  if (drag) {
+    const [a,b,c,d] = [Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1), Math.max(drag.x0, drag.x1), Math.max(drag.y0, drag.y1)];
+    ctx.strokeStyle = COLORS[cls];
+    ctx.setLineDash([4,3]);
+    ctx.strokeRect(m.ox + a*m.scale, m.oy + b*m.scale, (c-a)*m.scale, (d-b)*m.scale);
+  }
+  document.getElementById("objList").innerHTML = (objects.length || draft)
+    ? [...objects.map((o,i) => `<div class="obj"><b style="color:${COLORS[o.class]}">${LABELS[o.class]}</b> · ${Math.round(o.bbox[2]-o.bbox[0])}×${Math.round(o.bbox[3]-o.bbox[1])}</div>`),
+       draft ? `<div class="obj"><b>预览</b> · 未保存</div>` : ""].join("")
+    : "本帧还没有框。";
+}
+function varTeal() { return getComputedStyle(document.documentElement).getPropertyValue("--teal").trim() || "#2ed3c6"; }
+
+async function loadMeta() {
+  meta = await jget("/api/label/meta");
+  document.getElementById("clipName").textContent = `${meta.name} · ${meta.width}×${meta.height} · ${meta.fps.toFixed(1)} fps`;
+  vid.src = `${meta.video_url}?v=${encodeURIComponent(meta.path)}`;
+  seek.max = String(meta.duration_s);
+  await refreshClips();
+  await refreshTimeline();
+  refreshSam();
+}
+async function refreshClips() {
+  const data = await jget("/api/label/clips");
+  const sel = document.getElementById("clipSel");
+  sel.innerHTML = data.clips.map(c => `<option value="${c.path}" ${c.path===meta.path?"selected":""}>${c.name}</option>`).join("");
+}
+async function refreshTimeline() {
+  const data = await jget("/api/label/timeline");
+  labeled = data.idx || [];
+  document.getElementById("countLabel").textContent = `${labeled.length} 帧已标`;
+  marks.innerHTML = labeled.map(i => {
+    const pct = meta.n > 1 ? (i / (meta.n - 1)) * 100 : 0;
+    return `<div class="mark" style="left:${pct}%"></div>`;
+  }).join("");
+}
+async function refreshSam() {
+  try {
+    const s = await jget("/api/label/status");
+    document.getElementById("samStat").textContent = s.loaded
+      ? `SAM2 已加载 · ${s.device === 0 ? "GPU" : s.device} · ${s.weights || ""}`
+      : "SAM2：未加载（第一次点选时下载 tiny 权重）。";
+  } catch {}
+}
+async function showStill(i) {
+  paused = true;
+  vid.pause();
+  document.getElementById("btnPlay").textContent = "播放";
+  still.src = `/api/label/frame?idx=${i}&_=${Date.now()}`;
+  still.style.display = "block";
+  const data = await jget(`/api/label/objects?idx=${i}`);
+  objects = data.objects || [];
+  draw();
+}
+function play() {
+  paused = false;
+  still.style.display = "none";
+  draft = null; points = []; pointLabels = [];
+  vid.play();
+  document.getElementById("btnPlay").textContent = "暂停";
+  draw();
+}
+function pauseHere() {
+  vid.pause();
+  const i = idxOf();
+  vid.currentTime = i / meta.fps;
+  showStill(i);
+}
+function tick() {
+  if (!meta) return;
+  const t = vid.currentTime;
+  document.getElementById("tLabel").textContent = `${fmt(t)}  /  ${fmt(meta.duration_s)}  ·  #${idxOf()}`;
+  if (!document.activeElement || document.activeElement !== seek) seek.value = String(t);
+  if (!paused) draw();
+  requestAnimationFrame(tick);
+}
+async function runPrompt(extra) {
+  if (busy || !paused) return;
+  busy = true;
+  say("SAM2 正在补全目标框…");
+  try {
+    const body = {
+      idx: idxOf(),
+      class_name: cls,
+      points,
+      labels: pointLabels,
+      bbox: extra && extra.bbox ? extra.bbox : (draft || null),
+    };
+    const out = await jpost("/api/label/prompt", body);
+    if (out.ok) {
+      draft = out.bbox;
+      say("已补全。Enter 保存本帧，F 跟踪前后帧。");
+    } else {
+      say(out.reason === "no_mask" ? "没有切出目标，换个位置再点。" : "补全失败。");
+    }
+    refreshSam();
+  } catch (e) {
+    say("SAM2 加载或推理失败，请看终端。");
+  }
+  busy = false;
+  draw();
+}
+async function saveFrame() {
+  if (!draft) { say("还没有预览框。"); return; }
+  const out = await jpost("/api/label/commit", { idx: idxOf(), class_name: cls, bbox: draft });
+  objects = out.objects || objects;
+  draft = null; points = []; pointLabels = [];
+  say(`已写入 ${out.image}`);
+  refreshTimeline();
+  draw();
+}
+async function trackFrames() {
+  if (!draft) { say("先点选出一个目标。"); return; }
+  busy = true;
+  say("正在向前后跟踪（约 1–2 秒）…");
+  try {
+    const out = await jpost("/api/label/track", {
+      idx: idxOf(), class_name: cls, bbox: draft, points, labels: pointLabels,
+    });
+    say(`已写入 ${out.n} 帧。时间轴红点是已标位置。`);
+    draft = null; points = []; pointLabels = [];
+    await showStill(idxOf());
+    refreshTimeline();
+  } catch {
+    say("跟踪失败。");
+  }
+  busy = false;
+}
+
+canvas.addEventListener("contextmenu", ev => ev.preventDefault());
+canvas.addEventListener("mousedown", ev => {
+  if (!meta || busy) return;
+  if (!paused) pauseHere();
+  const [x,y] = evXY(ev);
+  if (ev.button === 2) {
+    points.push([x,y]); pointLabels.push(0);
+    runPrompt();
+    return;
+  }
+  drag = { x0: x, y0: y, x1: x, y1: y, moved: false };
+});
+canvas.addEventListener("mousemove", ev => {
+  if (!drag) return;
+  const [x,y] = evXY(ev);
+  drag.x1 = x; drag.y1 = y;
+  drag.moved = Math.hypot(x-drag.x0, y-drag.y0) > 6;
+  draw();
+});
+window.addEventListener("mouseup", ev => {
+  if (!drag) return;
+  const box = [Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1), Math.max(drag.x0, drag.x1), Math.max(drag.y0, drag.y1)];
+  const wasDrag = drag.moved;
+  drag = null;
+  if (wasDrag) {
+    draft = box;
+    runPrompt({ bbox: box });
+  } else {
+    points.push([box[0], box[1]]); pointLabels.push(1);
+    runPrompt();
+  }
+});
+
+document.getElementById("btnPlay").onclick = () => paused ? play() : pauseHere();
+document.getElementById("btnSave").onclick = saveFrame;
+document.getElementById("btnTrack").onclick = trackFrames;
+document.getElementById("btnClear").onclick = async () => {
+  if (!confirm("清空这一帧的全部框？")) return;
+  await jpost("/api/label/clear", { idx: idxOf() });
+  objects = []; draft = null;
+  say("本帧已清空。");
+  refreshTimeline();
+  draw();
+};
+document.getElementById("btnPack").onclick = async () => {
+  const out = await jpost("/api/label/materialize", {});
+  say(`已整理 train=${out.n_train_images} val=${out.n_val_images}。用 rpar train-bump --skip-propose 训练。`);
+};
+document.getElementById("clsRow").onclick = ev => {
+  const b = ev.target.closest("button");
+  if (!b) return;
+  cls = b.dataset.cls;
+  [...document.getElementById("clsRow").children].forEach(x => x.classList.toggle("active", x === b));
+};
+document.getElementById("clipSel").onchange = async ev => {
+  meta = await jpost("/api/label/open", { path: ev.target.value });
+  vid.src = `${meta.video_url}?v=${encodeURIComponent(meta.path)}`;
+  document.getElementById("clipName").textContent = meta.name;
+  seek.max = String(meta.duration_s);
+  objects = []; draft = null;
+  refreshTimeline();
+};
+seek.addEventListener("input", () => {
+  vid.currentTime = Number(seek.value);
+});
+seek.addEventListener("change", () => pauseHere());
+vid.addEventListener("click", () => paused ? play() : pauseHere());
+window.addEventListener("resize", draw);
+window.addEventListener("keydown", ev => {
+  if (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT") return;
+  if (ev.code === "Space") { ev.preventDefault(); paused ? play() : pauseHere(); }
+  if (ev.key === "Enter") { ev.preventDefault(); saveFrame(); }
+  if (ev.key === "f" || ev.key === "F") { ev.preventDefault(); trackFrames(); }
+  if (ev.key === "Escape") { draft = null; points = []; pointLabels = []; draw(); }
+  if (ev.key === "1") document.querySelector('[data-cls="pothole"]').click();
+  if (ev.key === "2") document.querySelector('[data-cls="speed_bump"]').click();
+  if (ev.key === "3") document.querySelector('[data-cls="manhole_cover"]').click();
+  if (ev.key === "[") { rateI = Math.max(0, rateI-1); vid.playbackRate = rates[rateI]; document.getElementById("rateLabel").textContent = `${rates[rateI]}×`; }
+  if (ev.key === "]") { rateI = Math.min(rates.length-1, rateI+1); vid.playbackRate = rates[rateI]; document.getElementById("rateLabel").textContent = `${rates[rateI]}×`; }
+  if (ev.key === "ArrowLeft") {
+    ev.preventDefault();
+    vid.currentTime = Math.max(0, vid.currentTime - (ev.shiftKey ? 0.5 : 1 / meta.fps));
+    pauseHere();
+  }
+  if (ev.key === "ArrowRight") {
+    ev.preventDefault();
+    vid.currentTime = Math.min(meta.duration_s, vid.currentTime + (ev.shiftKey ? 0.5 : 1 / meta.fps));
+    pauseHere();
+  }
+});
+still.addEventListener("load", draw);
+loadMeta().then(() => { vid.pause(); tick(); say("空格暂停 · 左键点选或拖框 · 松手后 SAM 补全"); });
+</script>
+</body>
+</html>

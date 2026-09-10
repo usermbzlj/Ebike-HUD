@@ -26,4 +26,4 @@ YOLOPv2 **不是**坑洞/井盖检测器。夜间沥青噪声不得标成 `rough
 
 ## 自采优先
 
-KPI 必须来自同一支架、同一手机、同一车灯、同一速度区间的 session。把新视频放到 `Video/train/inbox/` 后跑 `rpar train-bump`。公开远距坑数据可以帮「提前识别」上界，但不能替代 OPPO RideSet，也不能用来调提醒阈值。
+KPI 必须来自同一支架、同一手机、同一车灯、同一速度区间的 session。把新视频放到 `Video/train/inbox/` 后用 `rpar label` 手标，再 `rpar train-bump --skip-propose`。公开远距坑数据可以帮「提前识别」上界，但不能替代 OPPO RideSet，也不能用来调提醒阈值。

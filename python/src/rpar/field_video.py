@@ -370,6 +370,7 @@ def run_field_videos(
     *,
     prefer_yolop: bool = False,
     prefer_bump: bool = False,
+    prefer_field_seg: bool = False,
     ui_mode: UiMode | None = None,
     start_s: float = 0.0,
 ) -> dict[str, Any]:
@@ -381,7 +382,9 @@ def run_field_videos(
     out_dir.mkdir(parents=True, exist_ok=True)
     catalog = write_catalog(d)
     live = {c["name"]: c for c in list_clips(d)}
-    engine = load_field_engine(cfg, prefer_yolop=prefer_yolop, prefer_bump=prefer_bump)
+    engine = load_field_engine(
+        cfg, prefer_yolop=prefer_yolop, prefer_bump=prefer_bump, prefer_field_seg=prefer_field_seg
+    )
     results: list[dict[str, Any]] = []
     hybrid = False
     try:
@@ -414,6 +417,7 @@ def run_field_videos(
         "max_frames": max_frames,
         "prefer_yolop": prefer_yolop,
         "prefer_bump": prefer_bump,
+        "prefer_field_seg": prefer_field_seg,
         "start_s": start_s,
         "ui_mode": mode.value,
         "hybrid": hybrid,

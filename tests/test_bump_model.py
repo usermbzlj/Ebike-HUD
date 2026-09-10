@@ -18,7 +18,7 @@ from rpar.enums import (
     bump_kind,
     is_bump_hazard,
 )
-from rpar.ml.bump_dataset import clip_split, ingest_inbox, propose_labels, write_data_yaml
+from rpar.ml.bump_dataset import clip_split, image_time_split, ingest_inbox, propose_labels, write_data_yaml
 from rpar.ml.bump_prompts import (
     CLASS_TO_ID,
     clip_class_hint,
@@ -111,7 +111,7 @@ def test_sunken_cover_is_darker_than_rim():
 
 def test_keep_box_rejects_full_frame_road():
     assert keep_box("pothole", (0, 120, 959, 534), 960, 540) is False
-    assert keep_box("pothole", (200, 180, 380, 300), 640, 360) is True
+    assert keep_box("pothole", (240, 260, 360, 300), 640, 360) is True
     assert keep_box("manhole_cover", (500, 350, 570, 390), 960, 540) is True
     assert keep_box("manhole_cover", (693, 257, 807, 291), 960, 540) is True
     assert keep_box("pothole", (1, 154, 954, 535), 960, 540) is False
@@ -119,13 +119,18 @@ def test_keep_box_rejects_full_frame_road():
     assert keep_box("pothole", (900, 200, 960, 248), 1920, 1080) is True
     assert keep_box("speed_bump", (620, 240, 1280, 280), 1920, 1080) is True
     assert keep_box("manhole_cover", (880, 190, 960, 230), 1920, 1080) is True
+    # Car/SUV rear: squarish, tall in the handlebar frame — not a pavement scar.
+    assert keep_box("pothole", (760, 400, 1160, 760), 1920, 1080) is False
+    assert keep_box("pothole", (200, 180, 380, 300), 640, 360) is False
     bgr = np.zeros((360, 640, 3), dtype=np.uint8)
-    obs = detection_to_obs(_frame(bgr), "large pothole", (200, 180, 380, 300), 0.62, bgr)
+    obs = detection_to_obs(_frame(bgr), "large pothole", (240, 260, 360, 300), 0.62, bgr)
     assert obs is not None
     assert obs.semantic_type == SemanticType.POTHOLE
     assert obs.geometry_type == GeometryType.CONCAVE
     _xc, _yc, bw, bh = xyxy_to_yolo(obs.bbox, 640, 360)
     assert 0 < bw < 1 and 0 < bh < 1
+    car = detection_to_obs(_frame(bgr), "pothole", (200, 180, 380, 300), 0.7, bgr)
+    assert car is None
 
 
 def test_merge_bump_replaces_heuristic_when_model_hits():
@@ -200,6 +205,49 @@ def test_merge_bump_replaces_heuristic_when_model_hits():
     assert not any(o.semantic_type == SemanticType.SPEED_BUMP for o in kept_far.observations)
 
 
+def test_merge_bump_drops_pothole_on_yolop_vehicle_strip():
+    # YOLOPv2 occ is the lower ~45% of a car. The pothole box sits on the rear window,
+    # so its center is above the strip — a center-only gate would keep it.
+    primary = PerceptionResult(
+        timestamp_ns=1,
+        source_frame_id=0,
+        road_polygon=[(0, 80), (400, 80), (400, 360), (0, 360)],
+        occluded_polygons=[[(100, 210), (220, 210), (220, 300), (100, 300)]],
+        observations=[],
+        backend=InferenceBackend.GPU,
+        latency_ms=4.0,
+        input_sizes=[(96, 48)],
+    )
+    bump = PerceptionResult(
+        timestamp_ns=1,
+        source_frame_id=0,
+        road_polygon=[],
+        occluded_polygons=[],
+        observations=[
+            _obs(SemanticType.POTHOLE, (110, 90, 210, 180)),
+            _obs(SemanticType.POTHOLE, (40, 310, 80, 340)),
+        ],
+        backend=InferenceBackend.GPU,
+        latency_ms=12.0,
+        input_sizes=[(640, 640)],
+    )
+    out = merge_bump_perception(primary, bump)
+    assert not any(o.bbox[1] == 90 for o in out.observations)
+    assert any(o.bbox[0] == 40 for o in out.observations)
+
+
+def test_suppress_bumps_on_coco_vehicle_box():
+    from rpar.ml.bump_prompts import suppress_bumps_on_vehicles
+
+    dets = [
+        {"name": "pothole", "bbox": (110, 90, 210, 180), "conf": 0.4},
+        {"name": "pothole", "bbox": (40, 310, 80, 340), "conf": 0.5},
+    ]
+    kept = suppress_bumps_on_vehicles(dets, [(100, 80, 220, 300)])
+    assert len(kept) == 1
+    assert kept[0]["bbox"][0] == 40
+
+
 def test_is_open_vocab_ignores_parent_folder_named_world():
     from pathlib import Path
     from rpar.ml.world_bump import _is_open_vocab
@@ -241,6 +289,15 @@ def test_inbox_ingest_and_fake_proposals(tmp_path):
 def test_clip_split_keeps_whole_videos_together():
     train, val, _test = clip_split(["a", "b", "c", "d", "e", "f"], seed=7)
     assert not (set(train) & set(val))
+
+
+def test_image_time_split_holds_out_tail():
+    index = [{"image": f"f{i:02d}.jpg", "clip": "ride", "frame_index": i * 30} for i in range(10)]
+    split = image_time_split(index, val_frac=0.2)
+    assert split["train"]
+    assert split["val"]
+    assert not (set(split["train"]) & set(split["val"]))
+    assert split["val"][-1] == "f09.jpg"
 
 
 def test_bump_phrases_and_default_alert_threshold():

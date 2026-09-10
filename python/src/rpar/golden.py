@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,15 +24,87 @@ from rpar.transforms import default_intrinsics, default_mount
 _INFO_SEMANTICS = {s.value for s in INFO_LAYER_SEMANTICS}
 
 
-def open_mp4_writer(path: Path | str, fps: float, size: tuple[int, int]) -> cv2.VideoWriter:
-    """Prefer H.264 when the OpenCV build has it; fall back to mp4v."""
-    dest = str(path)
+class _FfmpegPipeWriter:
+    """Write BGR frames to an ffmpeg subprocess (NVENC, then libx264)."""
+
+    def __init__(self, proc: subprocess.Popen) -> None:
+        self.proc = proc
+
+    def isOpened(self) -> bool:
+        return self.proc.poll() is None and self.proc.stdin is not None
+
+    def write(self, frame: np.ndarray) -> None:
+        if self.proc.stdin is None:
+            return
+        self.proc.stdin.write(np.ascontiguousarray(frame).tobytes())
+
+    def release(self) -> None:
+        if self.proc.stdin is not None:
+            try:
+                self.proc.stdin.close()
+            except OSError:
+                pass
+        self.proc.wait(timeout=600)
+
+
+def _ffmpeg_exe() -> str | None:
+    from shutil import which
+
+    found = which("ffmpeg")
+    if found:
+        return found
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
+
+
+def _ffmpeg_has_encoder(exe: str, codec: str) -> bool:
+    try:
+        r = subprocess.run([exe, "-hide_banner", "-encoders"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return codec in (r.stdout or "")
+
+
+def open_mp4_writer(path: Path | str, fps: float, size: tuple[int, int]):
+    """Prefer ffmpeg H.264 (NVENC / libx264); OpenCV avc1/mp4v is the fallback."""
+    dest = str(Path(path))
+    w, h = int(size[0]), int(size[1])
+    rate = float(max(fps, 1.0))
+    exe = _ffmpeg_exe()
+    if exe:
+        pix = ["-pix_fmt", "yuv420p"]
+        heads = [
+            exe, "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
+            "-s", f"{w}x{h}", "-r", f"{rate:.6f}", "-i", "pipe:0", "-an",
+        ]
+        candidates = []
+        if _ffmpeg_has_encoder(exe, "h264_nvenc"):
+            candidates.append(["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "23", *pix])
+        if _ffmpeg_has_encoder(exe, "libx264"):
+            candidates.append(["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", *pix])
+        for encoder in candidates:
+            proc = subprocess.Popen(
+                [*heads, *encoder, dest],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                bufsize=8 * 1024 * 1024,
+            )
+            if proc.poll() is None:
+                print(f"[video] encoder={' '.join(encoder[1:3])} -> {dest}", flush=True)
+                return _FfmpegPipeWriter(proc)
+            proc.wait()
     last: cv2.VideoWriter | None = None
     for code in ("avc1", "H264", "X264", "mp4v"):
         four = "".join(code[:4]).ljust(4)
-        vw = cv2.VideoWriter(dest, cv2.VideoWriter_fourcc(*four), float(max(fps, 1.0)), size)
+        vw = cv2.VideoWriter(dest, cv2.VideoWriter_fourcc(*four), rate, (w, h))
         last = vw
         if vw.isOpened():
+            print(f"[video] encoder=opencv:{code} -> {dest}", flush=True)
             return vw
         vw.release()
     if last is None:
@@ -280,9 +353,11 @@ def run_video_file(
     engine=None,
     prefer_yolop: bool = False,
     prefer_bump: bool = False,
+    prefer_field_seg: bool = False,
     still_ratios: tuple[float, ...] = (0.25, 0.45, 0.65),
     ui_mode: UiMode = UiMode.RIDING,
     start_s: float = 0.0,
+    stride: int = 1,
 ) -> dict[str, Any]:
     cfg = cfg or load_config()
     cap = cv2.VideoCapture(str(path))
@@ -294,19 +369,29 @@ def run_video_file(
     mount = default_mount(w, h)
     k = default_intrinsics(w, h)
     own_engine = engine is None
-    eng = engine if engine is not None else load_field_engine(cfg, prefer_yolop=prefer_yolop, prefer_bump=prefer_bump)
+    eng = engine if engine is not None else load_field_engine(
+        cfg, prefer_yolop=prefer_yolop, prefer_bump=prefer_bump, prefer_field_seg=prefer_field_seg
+    )
     cap_info0 = eng.capability() if hasattr(eng, "capability") else {}
     sidecar0 = cap_info0.get("sidecar") if isinstance(cap_info0.get("sidecar"), dict) else {}
     bump0 = cap_info0.get("bump") if isinstance(cap_info0.get("bump"), dict) else {}
+    print(
+        f"[video] {path.name} sidecar={sidecar0.get('backend') or cap_info0.get('backend')} "
+        f"bump={bump0.get('backend') or bump0.get('weights')} "
+        f"max_frames={max_frames} start_s={start_s} stride={max(1, int(stride))}",
+        flush=True,
+    )
     version = cfg.model.package_id
     if cap_info0.get("hybrid"):
-        version = f"{version}+{sidecar0.get('backend', 'sidecar')}"
+        version = f"{version}+{sidecar0.get('backend') or cap_info0.get('backend') or 'sidecar'}"
     if bump0.get("backend"):
         version = f"{version}+{bump0.get('backend')}"
     pipe = RealtimePipeline(cfg, eng, GeometryEngine(mount, cfg.geometry, k), model_version=version)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    vw = open_mp4_writer(out_dir / "overlay.mp4", fps, (w, h))
+    step = max(1, int(stride))
+    out_fps = float(fps) / step
+    vw = open_mp4_writer(out_dir / "overlay.mp4", out_fps, (w, h))
     from rpar.models import FrameMeta, SynchronizedFrame
 
     n_src = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
@@ -331,10 +416,16 @@ def run_video_file(
     blurs: list[float] = []
     glares: list[float] = []
     lumas: list[float] = []
-    still_at = {max(0, int(still_base * r) - 1) for r in still_ratios}
+    still_at = {max(0, ((int(still_base * r) - 1) // step) * step) for r in still_ratios}
     stills: list[str] = []
     first_confirm: dict[int, float] = {}
+    n_written = 0
     while i < limit:
+        if step > 1 and (i % step) != 0:
+            if not cap.grab():
+                break
+            i += 1
+            continue
         ok, bgr = cap.read()
         if not ok:
             break
@@ -368,6 +459,7 @@ def run_video_file(
         view = pipe.step(frame, ui_mode=ui_mode)
         composed = compose(bgr, view, ui_mode)
         vw.write(composed)
+        n_written += 1
         if i in still_at:
             still_path = out_dir / f"overlay_{i:04d}.jpg"
             cv2.imwrite(str(still_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
@@ -376,8 +468,8 @@ def run_video_file(
             ride_path = out_dir / f"riding_{i:04d}.jpg"
             cv2.imwrite(str(ride_path), compose(bgr, ride, UiMode.RIDING), [int(cv2.IMWRITE_JPEG_QUALITY), 88])
             stills.append(str(ride_path))
-        if i and i % 60 == 0:
-            print(f"  {path.name}: {i}/{limit} frames", flush=True)
+        if i and i % max(600, 300 * step) == 0:
+            print(f"  {path.name}: {i}/{limit} src  {n_written} written", flush=True)
         alerts += sum(1 for a in view.alerts if a.fired)
         blurs.append(view.blur)
         glares.append(view.glare)
@@ -409,7 +501,9 @@ def run_video_file(
     n_confirmed_tracks = len(confirmed_ids)
     sem_counts = dict(Counter(confirmed_sem.values()))
     return {
-        "frames": i,
+        "frames": n_written,
+        "src_frames": i,
+        "stride": step,
         "out": str(out_dir / "overlay.mp4"),
         "stills": stills,
         "engine": (cap_info.get("bump") or {}).get("backend") or sidecar.get("backend", cap_info.get("backend")),
@@ -418,6 +512,7 @@ def run_video_file(
         "width": w,
         "height": h,
         "src_fps": fps,
+        "out_fps": out_fps,
         "duration_s": duration_s,
         "mean_luma": luma,
         "lighting": "night" if luma < 105 else "day",
@@ -437,7 +532,7 @@ def run_video_file(
         "n_unknown_confirmed": sum(1 for s in confirmed_sem.values() if s == SemanticType.UNKNOWN_ANOMALY.value),
         "n_confirmed_with_distance": len(confirmed_dist_ids),
         "n_confirmed_with_direction": len(confirmed_dir_ids),
-        "road_frame_share": (road_frames / i) if i else 0.0,
+        "road_frame_share": (road_frames / n_written) if n_written else 0.0,
         "occlusion_frame_share": (occ_frames / i) if i else 0.0,
         "confirmed_per_min": (n_confirmed_tracks / duration_s * 60.0) if duration_s > 0 else 0.0,
         "first_confirm_distance_m": first_confirm,

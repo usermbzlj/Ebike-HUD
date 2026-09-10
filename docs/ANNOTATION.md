@@ -2,6 +2,29 @@
 
 先标道路和遮挡，再标路面异常。目标落在不可观测区域时不得猜测形状。争议样本进入 review 队列，不直接用于高权重监督。
 
+## 颠簸三类（训练用 YOLO 框）
+
+Bump 学生网只吃 `pothole` / `speed_bump` / `manhole_cover` 的检测框，写在 `artifacts/bump_dataset/labels/raw/*.txt`。
+
+不要用 CVAT / X-AnyLabeling / Label Studio 另起一套工程：那些工具能跑 SAM2，但导不出这条训练链路。本仓库的 `rpar label` 复用 **Ultralytics SAM2**（点选/框选补全 + 短窗跟踪），界面按骑行视频暂停来做。
+
+```text
+rpar label --video Video/train/inbox/VID....mp4
+```
+
+| 操作 | 作用 |
+|---|---|
+| 空格 | 随时暂停 / 播放 |
+| 左键单击 | 正点击 → SAM2 补全框 |
+| 左键拖动 | 框选 → SAM2 收紧 |
+| 右键 | 负点击（去掉误切到的车/影子） |
+| `1` `2` `3` | 大坑 / 减速带 / 井盖 |
+| Enter | 只保存当前帧 |
+| F | 保存并向前后约 1–2 秒跟踪 |
+| ← → | 逐帧；Shift 步进 0.5 秒 |
+
+人工框**不会**走 `keep_box`。标完用 `rpar train-bump --skip-propose`，不要再跑会覆盖 `labels/raw` 的 `ride-train`。
+
 ## 属性
 
 | 字段 | 取值 | 规则 |

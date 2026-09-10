@@ -844,34 +844,42 @@ def load_engine(cfg: RparConfig, package_dir: Path | None = None) -> PerceptionE
     return heuristic
 
 
+def _roadseg_field_weights() -> np.ndarray | None:
+    for parent in [Path(__file__).resolve(), *Path(__file__).resolve().parents]:
+        cand = parent / "models" / "roadseg-field-0.1.0" / "seg_weights.json"
+        if cand.is_file():
+            import json
+
+            meta = json.loads(cand.read_text(encoding="utf-8"))
+            w = meta.get("weights")
+            return np.asarray(w) if w else None
+    return None
+
+
 def load_field_engine(
     cfg: RparConfig,
     *,
     prefer_yolop: bool = True,
     prefer_bump: bool = False,
+    prefer_field_seg: bool = False,
     weights: Path | None = None,
 ) -> PerceptionEngine:
-    """Heuristic + optional YOLOPv2 road sidecar + optional YOLO-World bump net."""
+    """Heuristic + optional YOLOPv2 / distilled roadseg sidecar + optional bump net."""
     heuristic = HeuristicPerceptionEngine(cfg)
     engine: PerceptionEngine = heuristic
-    if prefer_yolop:
+    if prefer_yolop or prefer_field_seg:
         from rpar.ml.yolopv2 import Yolopv2Engine, weights_available
         from rpar.segengine import DualScaleSegEngine, HybridPerceptionEngine
 
         path = Path(weights) if weights else None
-        if weights_available(path):
+        field_w = _roadseg_field_weights()
+        yolop_ok = weights_available(path)
+        if prefer_field_seg and field_w is not None:
+            engine = DualScaleSegEngine(field_w)
+        elif prefer_yolop and yolop_ok:
             engine = HybridPerceptionEngine(heuristic, Yolopv2Engine(path))
-        else:
-            for parent in [Path(__file__).resolve(), *Path(__file__).resolve().parents]:
-                cand = parent / "models" / "roadseg-field-0.1.0" / "seg_weights.json"
-                if cand.is_file():
-                    import json
-
-                    meta = json.loads(cand.read_text(encoding="utf-8"))
-                    w = meta.get("weights")
-                    if w:
-                        engine = HybridPerceptionEngine(heuristic, DualScaleSegEngine(np.asarray(w)))
-                    break
+        elif field_w is not None:
+            engine = HybridPerceptionEngine(heuristic, DualScaleSegEngine(field_w))
     if prefer_bump:
         from rpar.ml.world_bump import try_load_world_bump
         from rpar.segengine import BumpHybridEngine

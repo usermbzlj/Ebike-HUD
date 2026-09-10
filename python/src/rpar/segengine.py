@@ -10,7 +10,8 @@ import cv2
 import numpy as np
 
 from rpar.enums import SemanticType
-from rpar.maskutil import bbox_iou
+from rpar.maskutil import bbox_iou, polygon_bbox
+from rpar.ml.bump_prompts import overlaps_vehicle_box
 from rpar.ml.seg_train import _xyrgb, predict_labels
 from rpar.models import FrameQualityMap, PerceptionResult, SynchronizedFrame
 from rpar.perception import HeuristicPerceptionEngine, PerceptionEngine
@@ -159,6 +160,37 @@ def merge_perception(
 _BUMP_TYPES = {SemanticType.POTHOLE, SemanticType.SPEED_BUMP, SemanticType.MANHOLE_COVER}
 
 
+def _vehicle_box_from_occ(poly: list) -> tuple[float, float, float, float]:
+    x0, y0, x1, y1 = polygon_bbox(poly)
+    h = max(1.0, y1 - y0)
+    # YOLOPv2 stores the bottom ~45% of the vehicle; expand back toward the roof.
+    return (x0, y0 - 1.22 * h, x1, y1)
+
+
+def drop_bumps_on_vehicles(
+    observations: list,
+    occluded_polygons: list,
+    *,
+    expand_strips: bool = True,
+) -> list:
+    """Drop bump instances that sit on a vehicle. YOLOPv2 occ is a bumper strip; expand it."""
+    if not occluded_polygons:
+        return observations
+    vehicles: list[tuple[float, float, float, float]] = []
+    for poly in occluded_polygons:
+        if len(poly) < 3:
+            continue
+        vehicles.append(polygon_bbox(poly))
+        if expand_strips:
+            vehicles.append(_vehicle_box_from_occ(poly))
+    kept = []
+    for o in observations:
+        if any(overlaps_vehicle_box(o.bbox, v) for v in vehicles):
+            continue
+        kept.append(o)
+    return kept
+
+
 def merge_bump_perception(primary: PerceptionResult, bump: PerceptionResult) -> PerceptionResult:
     """Bump-net output owns pothole/cover/hump. Empty model output still drops heuristic FPs.
 
@@ -167,13 +199,16 @@ def merge_bump_perception(primary: PerceptionResult, bump: PerceptionResult) -> 
     """
     kept = [o for o in primary.observations if o.semantic_type not in _BUMP_TYPES]
     extra = list(bump.observations)
-    if primary.occluded_polygons:
-        extra = gate_observations(extra, [], primary.occluded_polygons, None)
+    extra = drop_bumps_on_vehicles(extra, primary.occluded_polygons or [], expand_strips=True)
+    extra = drop_bumps_on_vehicles(extra, bump.occluded_polygons or [], expand_strips=False)
+    occ = list(primary.occluded_polygons or [])
+    if bump.occluded_polygons:
+        occ.extend(bump.occluded_polygons)
     return PerceptionResult(
         timestamp_ns=primary.timestamp_ns,
         source_frame_id=primary.source_frame_id,
         road_polygon=primary.road_polygon,
-        occluded_polygons=primary.occluded_polygons,
+        occluded_polygons=occ,
         observations=kept + extra,
         backend=bump.backend,
         latency_ms=max(primary.latency_ms, bump.latency_ms),
@@ -204,6 +239,8 @@ class BumpHybridEngine:
         cap["bump"] = self.bump.capability() if hasattr(self.bump, "capability") else {"backend": "bump"}
         if self.sidecar is not None and hasattr(self.sidecar, "capability"):
             cap.setdefault("sidecar", self.sidecar.capability())
+        elif cap.get("backend") and "sidecar" not in cap:
+            cap["sidecar"] = {"backend": cap.get("backend")}
         return cap
 
     def close(self) -> None:

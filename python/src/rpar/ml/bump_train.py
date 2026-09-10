@@ -14,6 +14,7 @@ from rpar.ml.bump_dataset import (
     default_inbox,
     ingest_inbox,
     propose_labels,
+    reuse_raw_labels,
 )
 from rpar.ml.train import write_run_card
 from rpar.ml.bump_prompts import WORLD_INFER_PROMPTS, YOLO_NAMES
@@ -94,27 +95,38 @@ def train_yolo(data_yaml: Path, out_dir: Path, *, epochs: int = 60, imgsz: int =
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    weights = model or str(default_teacher_path())
-    if not Path(weights).is_file():
-        weights = "yolov8m.pt"
+    weights = model or "yolov8m.pt"
+    if model and Path(model).is_file():
+        weights = str(model)
     net = YOLO(weights)
-    try:
-        net.train(
-            data=str(data_yaml),
-            epochs=int(epochs),
-            imgsz=int(imgsz),
-            batch=8,
-            device=0,
-            project=str(out_dir),
-            name="train",
-            exist_ok=True,
-            patience=15,
-            workers=2,
-            pretrained=True,
-            verbose=True,
-        )
-    except Exception as exc:
-        return {"ok": False, "reason": "train_failed", "error": str(exc)[:400]}
+    batch = 16
+    last_err = None
+    for batch in (16, 8, 4):
+        try:
+            net.train(
+                data=str(data_yaml),
+                epochs=int(epochs),
+                imgsz=int(imgsz),
+                batch=batch,
+                device=0,
+                project=str(out_dir),
+                name="train",
+                exist_ok=True,
+                patience=12,
+                workers=2,
+                pretrained=True,
+                verbose=True,
+                amp=True,
+            )
+            last_err = None
+            break
+        except Exception as exc:
+            last_err = exc
+            msg = str(exc).lower()
+            if "out of memory" not in msg and "cuda" not in msg:
+                return {"ok": False, "reason": "train_failed", "error": str(exc)[:400]}
+    if last_err is not None:
+        return {"ok": False, "reason": "train_failed", "error": str(last_err)[:400]}
     best = out_dir / "train" / "weights" / "best.pt"
     pkg = repo_root() / "models" / "bump-world-0.1.0"
     pkg.mkdir(parents=True, exist_ok=True)
@@ -136,15 +148,17 @@ def run_bump_train(
     epochs: int = 60,
     min_images: int = 16,
     skip_download: bool = False,
+    max_frames_per_clip: int = 1600,
+    skip_propose: bool = False,
 ) -> dict[str, Any]:
     inbox = Path(inbox) if inbox else default_inbox()
     dataset_dir = Path(dataset_dir) if dataset_dir else default_dataset_dir()
     out_dir = Path(out_dir) if out_dir else repo_root() / "artifacts" / "bump_train"
-    ingested = ingest_inbox(inbox, dataset_dir, sample_fps=sample_fps)
+    ingested = ingest_inbox(inbox, dataset_dir, sample_fps=sample_fps, max_frames_per_clip=max_frames_per_clip)
     teacher = {"ok": False, "reason": "skipped"}
     if not skip_download:
         teacher = ensure_teacher_weights()
-    proposed = propose_labels(dataset_dir)
+    proposed = reuse_raw_labels(dataset_dir) if skip_propose else propose_labels(dataset_dir)
     n_train = int(proposed.get("n_train_images") or 0)
     trained: dict[str, Any] = {"ok": False, "reason": "not_attempted"}
     if proposed.get("ok") and n_train >= min_images:

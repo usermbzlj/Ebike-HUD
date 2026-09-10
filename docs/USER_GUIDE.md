@@ -83,7 +83,21 @@ rpar field-video --out artifacts/field_video
 
 怎么拍：Find X8 Pro 横屏后置 1×，尽量左侧车把；每个目标从约 15–20 m 骑向它；白天和有路灯夜间都要；减速带包含黄白漆和橡胶坎。文件名建议 `pothole_day_01.mp4`、`speedbump_night_01.mp4`、`manhole_sunken_day_01.mp4`（也可直接用中文：`大坑_白天_01.mp4`）。详见该目录里的 `PUT_VIDEOS_HERE.txt`。
 
-拷完后告诉我，或本机运行：
+拷完后用交互标注（推荐），不要指望自动伪标：
+
+```text
+rpar label --video Video/train/inbox/你的片子.mp4
+```
+
+浏览器打开后空格暂停，左键点选或拖框，松手后 SAM2 收紧目标框；`F` 把同一目标跟到前后约 1–2 秒。标完：
+
+```text
+rpar train-bump --skip-propose
+```
+
+`--skip-propose` 必须加，否则 `train-bump` / `ride-train` 会用 YOLO-World 覆盖你刚标的框。
+
+也可以继续用纯自动教师（质量差，只适合冷启动）：
 
 ```text
 rpar fetch-bump-model
